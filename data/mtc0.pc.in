@@ -1,0 +1,11 @@
+prefix=@prefix@
+exec_prefix=@exec_prefix@
+includedir=@includedir@
+libdir=@libdir@
+
+Name: MTC
+Description: High performance IPC library
+Version: @VERSION@
+
+Libs: -lm -lmtc0
+Cflags:
