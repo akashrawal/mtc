@@ -175,7 +175,7 @@ AC_CONFIG_FILES([Makefile
                  mtc0/config.sh
                  mdlc/Makefile
                  doc/Makefile])
-AC_CONFIG_HEADERS([config.h])
+#AC_CONFIG_HEADERS([config.h])
 AC_OUTPUT
 
 #TODO: C standards

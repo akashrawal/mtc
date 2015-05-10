@@ -22,8 +22,7 @@
  * \addtogroup mtc_msg
  * \{
  * 
- * A message is one container for 'dual stream' data that can be sent
- * over a link.
+ * A message is one container for 'dual stream' serialized data.
  */
 
 ///A structure representing a message.
