@@ -198,22 +198,24 @@ void mtc_segment_read_raw(MtcSegment *seg, MtcValRaw *val)
 //Header used by MtcFDLink
 
 //serialize the header for a message
-void mtc_header_write_for_msg
-	(MtcHeaderBuf *buf, uint64_t dest, uint64_t reply_to, 
-	MtcMBlock *blocks, uint32_t n_blocks)
+void mtc_header_write
+	(MtcHeaderBuf *buf, MtcMBlock *blocks, uint32_t n_blocks, int stop)
 {
 	char *buf_c = (char *) buf;
 	char *data_iter, *data_lim;
+	uint32_t size;
 	
 	buf_c[0] = 'M';
 	buf_c[1] = 'T';
 	buf_c[2] = 'C';
 	buf_c[3] = 0;
-	mtc_uint32_copy_to_le(buf_c + 4, &n_blocks);
-	mtc_uint64_copy_to_le(buf_c + 8, &dest);
-	mtc_uint64_copy_to_le(buf_c + 16, &reply_to);
 	
-	data_iter = buf_c + 24;
+	size = n_blocks;
+	if (stop)
+		size |= (1 << 31);
+	mtc_uint32_copy_to_le(buf_c + 4, &size);
+	
+	data_iter = buf_c + 8;
 	data_lim = data_iter + (n_blocks * 4);
 	for (; data_iter < data_lim; data_iter += 4, blocks++)
 	{
@@ -221,40 +223,28 @@ void mtc_header_write_for_msg
 	}
 }
 
-//serialize the header for a signal
-void mtc_header_write_for_signal
-	(MtcHeaderBuf *buf, uint64_t dest, uint64_t reply_to, 
-	uint32_t signum)
-{
-	char *buf_c = (char *) buf;
-	
-	buf_c[0] = 'M';
-	buf_c[1] = 'T';
-	buf_c[2] = 'C';
-	buf_c[3] = 0;
-	buf_c[4] = 0;
-	buf_c[5] = 0;
-	buf_c[6] = 0;
-	buf_c[7] = 0;
-	mtc_uint64_copy_to_le(buf_c + 8, &dest);
-	mtc_uint64_copy_to_le(buf_c + 16, &reply_to);
-	mtc_uint32_copy_to_le(buf_c + 24, &signum);
-}
-
 //Deserialize the message header
 int mtc_header_read(MtcHeaderBuf *buf, MtcHeaderData *res)
 {
 	char *buf_c = (char *) buf;
+	uint32_t size;
 	
 	if (buf_c[0] != 'M' 
 		|| buf_c[1] != 'T'
 		|| buf_c[2] != 'C'
 		|| buf_c[3] != 0)
+	{
 		return 0;
-	mtc_uint32_copy_from_le(buf_c + 4, &(res->size));
-	mtc_uint64_copy_from_le(buf_c + 8, &(res->dest));
-	mtc_uint64_copy_from_le(buf_c + 16, &(res->reply_to));
-	mtc_uint32_copy_from_le(buf_c + 24, &(res->data_1));
+	}
+	
+	mtc_uint32_copy_from_le(buf_c + 4, &size);
+	res->size = size & (~(((uint32_t) 1) << 31));
+	res->stop = size >> 31;
+	
+	if (res->size == 0)
+		return 0;
+	
+	mtc_uint32_copy_from_le(buf_c + 8, &(res->data_1));
 	
 	return 1;
 }

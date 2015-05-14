@@ -447,27 +447,19 @@ void mtc_segment_write_raw(MtcSegment *seg, MtcValRaw val);
  */
 void mtc_segment_read_raw(MtcSegment *seg, MtcValRaw *val);
 
-
 //Common header for all types of data used on MtcFDLink
 //No padding to be assumed
 typedef struct
 {
-	//For error detection and protocol versioning.
+	//Magic values
 	char m, t, c, zero;
 	
 	//No. of blocks inside a message.
-	//For signal it is 0.
+	//MSB is one if link is to be stopped after receiving this
 	uint32_t size;
 	
-	//Destination to send data to
-	uint64_t dest;
-	
-	//Destination to send reply (or errors if any) to
-	uint64_t reply_to;
-	
-	//For message this is followed by 'block size index' (BSI)
-	//indicating size of each extra block followed by the actual data.
-	//For signal it is only 1 element long containing signal
+	//'block size index' (BSI)
+	//Indicates size of each extra block followed by the actual data.
 	//The size 2 here has no semantic meaning and is not to be 
 	//respected.
 	uint32_t data[2];
@@ -476,32 +468,26 @@ typedef struct
 //Structure containing only useful data elements from MtcHeader
 typedef struct 
 {
-	uint64_t dest, reply_to;
 	uint32_t size, data_1;
+	int stop;
 } MtcHeaderData;
 
 //Type for the buffer for message
 //uint64_t is just to force alignment with hope of increasing 
 //performance
-typedef struct {uint64_t data[4]; } MtcHeaderBuf;
+typedef struct {uint64_t data[2]; } MtcHeaderBuf;
 
 //Macro to calculate size of the header
-#define mtc_header_sizeof(size) (24 + (4 * (size)))
+#define mtc_header_sizeof(size) (8 + (4 * (size)))
 
 //Macro to calculate minimum size of the header
 //It is the size of data that is read first by MtcFDLink which tells
 //about size of the rest of the header
-#define mtc_header_min_size (28)
+#define mtc_header_min_size (12)
 
 //Serialize the header for a message
-void mtc_header_write_for_msg
-	(MtcHeaderBuf *buf, uint64_t dest, uint64_t reply_to, 
-	MtcMBlock *blocks, uint32_t n_blocks);
-
-//Serialize the header for a signal
-void mtc_header_write_for_signal
-	(MtcHeaderBuf *buf, uint64_t dest, uint64_t reply_to, 
-	uint32_t signum);
+void mtc_header_write
+	(MtcHeaderBuf *buf, MtcMBlock *blocks, uint32_t n_blocks, int stop);
 
 //Deserialize the message header
 //returns zero for format errors

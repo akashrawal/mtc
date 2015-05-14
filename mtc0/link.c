@@ -18,7 +18,7 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
+//TODO: Scan this file for further modularization
 #include "common.h"
 
 #include <errno.h>
@@ -48,7 +48,7 @@ void mtc_link_break(MtcLink *self)
 	self->out_status = MTC_LINK_STATUS_BROKEN;
 }
 
-//Resumes data reception stopped by sending MTC_SIGNAL_STOP signal.
+//Resumes data reception
 void mtc_link_resume_in(MtcLink *self)
 {
 	if (self->in_status == MTC_LINK_STATUS_BROKEN)
@@ -56,7 +56,7 @@ void mtc_link_resume_in(MtcLink *self)
 	self->in_status = MTC_LINK_STATUS_OPEN;
 }
 
-//Resumes data transmission stopped by sending MTC_SIGNAL_STOP signal.
+//Resumes data transmission
 void mtc_link_resume_out(MtcLink *self)
 {
 	if (self->out_status == MTC_LINK_STATUS_BROKEN)
@@ -65,20 +65,10 @@ void mtc_link_resume_out(MtcLink *self)
 }
 
 //Schedules a message to be sent through the link.
-void mtc_link_queue_msg
-	(MtcLink *self, uint64_t dest, uint64_t reply_to, MtcMsg *msg)
+void mtc_link_queue
+	(MtcLink *self, MtcMsg *msg, int stop)
 {
-	(* self->vtable->queue_msg) (self, dest, reply_to, msg);
-}
-
-//Schedules a signal to be sent through the link.
-void mtc_link_queue_signal
-	(MtcLink *self, uint64_t dest, uint64_t reply_to, uint32_t signum)
-{
-	(* self->vtable->queue_signal) (self, dest, reply_to, signum);
-	
-	if (signum == MTC_SIGNAL_STOP)
-		self->stop_queued++;
+	(* self->vtable->queue) (self, msg, stop);
 }
 
 //Gets whether mtc_link_send will try to send any data.
@@ -109,43 +99,12 @@ MtcLinkIOStatus mtc_link_send(MtcLink *self)
 	}
 	else if (res == MTC_LINK_IO_STOP)
 	{
-		MtcLinkStopCB *iter;
 		self->out_status = MTC_LINK_STATUS_STOPPED;
-		self->stop_execd++;
-		
-		while ((iter = self->stop_cbs.next) != &(self->stop_cbs))
-		{
-			if (iter->stop_id != self->stop_execd)
-				break;
-			
-			iter->prev->next = iter->next;
-			iter->next->prev = iter->prev;
-			(*iter->cb) (self, iter->data);
-		}
 	}
 	
 	return res;
 }
 
-//Adds callback structure
-void mtc_link_add_stop_cb(MtcLink *self, MtcLinkStopCB *cb)
-{
-	if (self->stop_execd == self->stop_queued)
-		mtc_error("No MTC_SIGNAL_STOP signal queued first");
-	
-	cb->stop_id = self->stop_queued;
-	cb->next = &(self->stop_cbs);
-	cb->prev = self->stop_cbs.prev;
-	cb->next->prev = cb;
-	cb->prev->next = cb;
-}
-
-//Removes callback structure
-void mtc_link_stop_cb_remove(MtcLinkStopCB *cb)
-{
-	cb->next->prev = cb->prev;
-	cb->prev->next = cb->next;
-}
 
 //Tries to receive one message or one signal.
 MtcLinkIOStatus mtc_link_receive(MtcLink *self, MtcLinkInData *data)
@@ -168,8 +127,7 @@ MtcLinkIOStatus mtc_link_receive(MtcLink *self, MtcLinkInData *data)
 		self->out_status = MTC_LINK_STATUS_BROKEN;
 	}
 	else if (res == MTC_LINK_IO_OK 
-		&& (!data->msg) 
-		&& data->signum == MTC_SIGNAL_STOP)
+		&& (data->stop))
 	{
 		self->in_status = MTC_LINK_STATUS_STOPPED;
 	}
@@ -224,11 +182,6 @@ MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable)
 	self->refcount = 1;
 	self->in_status = self->out_status = MTC_LINK_STATUS_OPEN;
 	self->vtable = vtable;
-	self->stop_cbs.prev = self->stop_cbs.next = &(self->stop_cbs);
-	self->stop_cbs.stop_id = 0;
-	self->stop_cbs.cb = 0;
-	self->stop_cbs.data = NULL;
-	self->stop_execd = self->stop_queued = 0;
 	
 	return self;
 }
@@ -241,14 +194,14 @@ typedef enum
 {
 	//Starting
 	MTC_FD_LINK_INIT_READ = 0,
-	//Reading generic header
-	MTC_FD_LINK_GENERIC_HDR = 1,
+	//Reading header
+	MTC_FD_LINK_HDR = 1,
 	//Reading message with only main block
-	MTC_FD_LINK_MSG_SIMPLE = 2,
+	MTC_FD_LINK_SIMPLE = 2,
 	//Reading message's block size index
-	MTC_FD_LINK_MSG_IDX = 3,
+	MTC_FD_LINK_IDX = 3,
 	//Reading message data
-	MTC_FD_LINK_MSG_DATA = 4
+	MTC_FD_LINK_DATA = 4
 } MtcFDLinkReadStatus;
 
 //Data to be sent
@@ -280,10 +233,15 @@ typedef struct
 	int close_fd;
 	
 	//Stuff for sending
-	struct iovec *iov;
-	int iov_alen, iov_start, iov_len, iov_clip;
-	MtcFDLinkSendJob *jobs_head, *jobs_tail;
-	int iov_ulim;
+	struct
+	{
+		struct iovec *mem;
+		int alen, start, len, ulim, clip;
+	} iov;
+	struct
+	{
+		MtcFDLinkSendJob *head, *tail;
+	} jobs;
 	
 	//Stuff for receiving
 	MtcReader reader;
@@ -300,41 +258,117 @@ typedef struct
 	MtcHeaderBuf header;
 } MtcFDLink;
 
+//Functions to manage IO vector
 static struct iovec *mtc_fd_link_alloc_iov
 	(MtcFDLink *self, int n_blocks)
 {
 	struct iovec *res;
 	
-	if (self->iov_start + self->iov_len + n_blocks > self->iov_alen)
+	if (self->iov.start + self->iov.len + n_blocks > self->iov.alen)
 	{
 		//Resize if IO vector is not sufficiently large.
 		int new_alen, i;
 		struct iovec *new_iov, *src;
 		
-		new_alen = self->iov_alen * 2;
+		new_alen = self->iov.alen * 2;
 		new_iov = (struct iovec *) mtc_alloc
 			(sizeof(struct iovec) * new_alen);
 		
-		src = self->iov + self->iov_start;
-		for (i = 0; i < self->iov_len; i++)
+		src = self->iov.mem + self->iov.start;
+		for (i = 0; i < self->iov.len; i++)
 			new_iov[i] = src[i];
 		
-		mtc_free(self->iov);
-		self->iov = new_iov;
-		self->iov_start = 0;
-		self->iov_alen = new_alen;
+		mtc_free(self->iov.mem);
+		self->iov.mem = new_iov;
+		self->iov.start = 0;
+		self->iov.alen = new_alen;
 	}
 	
 	//Allocate
-	res = self->iov + self->iov_start + self->iov_len;
-	self->iov_len += n_blocks;
+	res = self->iov.mem + self->iov.start + self->iov.len;
+	self->iov.len += n_blocks;
 	
 	return res;
 }
 
+static int mtc_fd_link_pop_iov(MtcFDLink *self, int n_bytes)
+{
+	int n_blocks = 0;
+	struct iovec *vector;
+	
+	vector = self->iov.mem + self->iov.start;
+	
+	//Count finished blocks and update unfinished block
+	while (n_blocks < self->iov.len ? n_bytes >= vector->iov_len : 0)
+	{
+		n_bytes -= vector->iov_len;
+		n_blocks++;
+		vector++;
+	}
+	if (n_bytes > 0)
+	{
+		vector->iov_base = MTC_PTR_ADD(vector->iov_base, n_bytes);
+		vector->iov_len -= n_bytes;
+	}
+	
+	//Update IO vector
+	self->iov.start += n_blocks;
+	self->iov.len -= n_blocks;
+	if (self->iov.clip >= 0)
+	{
+		self->iov.clip -= n_blocks;
+		if (self->iov.clip < 0)
+			mtc_error("Assertion failure");
+	}
+	
+	//Collapse IO vector if necessary
+	if (self->iov.alen > MTC_IOV_MIN
+		&& self->iov.len <= self->iov.alen * 0.25)
+	{
+		int new_alen, i;
+		struct iovec *new_iov, *src;
+		
+		new_alen = self->iov.alen / 2;
+		new_iov = (struct iovec *) mtc_alloc
+			(sizeof(struct iovec) * new_alen);
+		
+		src = self->iov.mem + self->iov.start;
+		for (i = 0; i < self->iov.len; i++)
+			new_iov[i] = src[i];
+		
+		mtc_free(self->iov.mem);
+		self->iov.mem = new_iov;
+		self->iov.start = 0;
+		self->iov.alen = new_alen;
+	}
+	else if (self->iov.start >= self->iov.alen / 2)
+	{
+		int i;
+		struct iovec *src;
+		
+		src = self->iov.mem + self->iov.start;
+		for (i = 0; i < self->iov.len; i++)
+			self->iov.mem[i] = src[i];
+		
+		self->iov.start = 0;
+	}
+	
+	return n_blocks;
+}
+
+static void mtc_fd_link_init_iov(MtcFDLink *self)
+{
+	self->iov.mem = (struct iovec *) 
+		mtc_alloc(sizeof(struct iovec) * MTC_IOV_MIN);
+	self->iov.alen = MTC_IOV_MIN;
+	self->iov.start = 0;
+	self->iov.len = 0;
+	self->iov.clip = -1;
+}
+
 //Schedules a message to be sent through the link.
-static void mtc_fd_link_queue_msg
-	(MtcLink *link, uint64_t dest, uint64_t reply_to, MtcMsg *msg)
+static void mtc_fd_link_queue
+	(MtcLink *link, MtcMsg *msg, int stop)
 {	
 	MtcFDLink *self = (MtcFDLink *) link;
 	
@@ -357,17 +391,16 @@ static void mtc_fd_link_queue_msg
 		(sizeof(MtcFDLinkSendJob) - sizeof(MtcHeaderBuf) + hdr_len);
 	
 	//Initialize job
-	if (self->jobs_head)
-		self->jobs_tail->next = job;
+	if (self->jobs.head)
+		self->jobs.tail->next = job;
 	else 
-		self->jobs_head = job;
-	self->jobs_tail = job;
+		self->jobs.head = job;
+	self->jobs.tail = job;
 	job->next = NULL;
 	job->msg = msg;
-	job->stop_flag = 0;
+	job->stop_flag = stop ? 1 : 0;
 	job->n_blocks = n_blocks + 1;
-	mtc_header_write_for_msg
-		(&(job->hdr), dest, reply_to, blocks, n_blocks);
+	mtc_header_write(&(job->hdr), blocks, n_blocks, stop);
 	
 	//Fill data into IOV
 	iov = mtc_fd_link_alloc_iov(self, n_blocks + 1);
@@ -379,41 +412,12 @@ static void mtc_fd_link_queue_msg
 		iov[i].iov_base = blocks[i].data;
 		iov[i].iov_len = blocks[i].len;
 	}
-}
-
-//Schedules a signal to be sent through the link.
-static void mtc_fd_link_queue_signal
-	(MtcLink *link, uint64_t dest, uint64_t reply_to, uint32_t signum)
-{	
-	MtcFDLink *self = (MtcFDLink *) link;
 	
-	MtcFDLinkSendJob *job;
-	struct iovec *iov;
-	
-	//Allocate a new structure...
-	job = (MtcFDLinkSendJob *) mtc_alloc(sizeof(MtcFDLinkSendJob));
-	
-	//Initialize job
-	if (self->jobs_head)
-		self->jobs_tail->next = job;
-	else 
-		self->jobs_head = job;
-	self->jobs_tail = job;
-	job->next = NULL;
-	job->msg = NULL;
-	job->stop_flag = (signum == MTC_SIGNAL_STOP ? 1 : 0);
-	job->n_blocks = 1;
-	mtc_header_write_for_signal(&(job->hdr), dest, reply_to, signum);
-	
-	//Fill data into IOV
-	iov = mtc_fd_link_alloc_iov(self, 1);
-	iov[0].iov_base = &(job->hdr);
-	iov[0].iov_len = mtc_header_min_size;
-	
-	if (signum == MTC_SIGNAL_STOP)
+	//Setup stop
+	if (stop)
 	{
-		if (self->iov_clip < 0)
-			self->iov_clip = self->iov_len;
+		if (self->iov.clip < 0)
+			self->iov.clip = self->iov.len;
 	}
 }
 
@@ -422,11 +426,11 @@ static int mtc_fd_link_can_send(MtcLink *link)
 {
 	MtcFDLink *self = (MtcFDLink *) link;
 	
-	if (self->iov_clip > 0)
+	if (self->iov.clip > 0)
 		return 1;
-	else if (self->iov_clip == 0)
+	else if (self->iov.clip == 0)
 		return 0;
-	else if (self->iov_len > 0)
+	else if (self->iov.len > 0)
 		return 1;
 	else
 		return 0;
@@ -437,88 +441,55 @@ static MtcLinkIOStatus mtc_fd_link_send(MtcLink *link)
 {
 	MtcFDLink *self = (MtcFDLink *) link;
 	
-	int n_blocks, blocks_out;
+	int blocks_out = 0;
 	ssize_t bytes_out;
-	struct iovec *vector;
+	int repeat_count;
 	
 	//Run the operation
-	n_blocks = self->iov_clip >= 0 ? self->iov_clip : self->iov_len;
-	vector = self->iov + self->iov_start;
-	
-	if (n_blocks > 0)
+	for (repeat_count = 0; ; repeat_count++)
 	{
-		if (self->iov_ulim > 0 && n_blocks > self->iov_ulim)
-			n_blocks = self->iov_ulim;
-		bytes_out = writev(self->out_fd, vector, n_blocks);
-	}
-	else
-		bytes_out = 0;
-	
-	//Handle errors
-	if (bytes_out < 0)
-	{
-		if (MTC_IO_TEMP_ERROR(errno))
-			return MTC_LINK_IO_TEMP;
+		struct iovec *vector;
+		int n_blocks;
+		int repeat = 0;
+		
+		n_blocks = self->iov.clip >= 0 ? self->iov.clip : self->iov.len;
+		vector = self->iov.mem + self->iov.start;
+		
+		if (n_blocks > 0)
+		{
+			if (self->iov.ulim > 0 && n_blocks > self->iov.ulim)
+			{
+				n_blocks = self->iov.ulim;
+				repeat = 1;
+			}
+			bytes_out = writev(self->out_fd, vector, n_blocks);
+		}
 		else
-			return MTC_LINK_IO_FAIL;
-	}
-	
-	//Count finished blocks and update unfinished block
-	blocks_out = 0;
-	while (blocks_out < n_blocks ? bytes_out >= vector->iov_len : 0)
-	{
-		bytes_out -= vector->iov_len;
-		blocks_out++;
-		vector++;
-	}
-	if (bytes_out > 0)
-	{
-		vector->iov_base = MTC_PTR_ADD(vector->iov_base, bytes_out);
-		vector->iov_len -= bytes_out;
-	}
-	
-	//Update IO vector
-	self->iov_start += blocks_out;
-	self->iov_len -= blocks_out;
-	if (self->iov_clip >= 0)
-		self->iov_clip -= blocks_out;
-	
-	//Collapse IO vector if necessary
-	if (self->iov_alen > MTC_IOV_MIN
-		&& self->iov_len <= self->iov_alen * 0.25)
-	{
-		int new_alen, i;
-		struct iovec *new_iov, *src;
+			bytes_out = 0;
 		
-		new_alen = self->iov_alen / 2;
-		new_iov = (struct iovec *) mtc_alloc
-			(sizeof(struct iovec) * new_alen);
+		//Handle errors
+		if (bytes_out < 0)
+		{
+			repeat = 0;
+			if (! repeat_count)
+			{
+				if (MTC_IO_TEMP_ERROR(errno))
+					return MTC_LINK_IO_TEMP;
+				else
+					return MTC_LINK_IO_FAIL;
+			}
+		}
+		else
+			blocks_out += mtc_fd_link_pop_iov(self, bytes_out);
 		
-		src = self->iov + self->iov_start;
-		for (i = 0; i < self->iov_len; i++)
-			new_iov[i] = src[i];
-		
-		mtc_free(self->iov);
-		self->iov = new_iov;
-		self->iov_start = 0;
-		self->iov_alen = new_alen;
-	}
-	else if (self->iov_start >= self->iov_alen / 2)
-	{
-		int i;
-		struct iovec *src;
-		
-		src = self->iov + self->iov_start;
-		for (i = 0; i < self->iov_len; i++)
-			self->iov[i] = src[i];
-		
-		self->iov_start = 0;
+		if (! repeat)
+			break;
 	}
 	
 	//Garbage collection
 	{
 		MtcFDLinkSendJob *iter, *next;
-		for (iter = self->jobs_head; iter; iter = next)
+		for (iter = self->jobs.head; iter; iter = next)
 		{
 			next = iter->next;
 			
@@ -526,37 +497,41 @@ static MtcLinkIOStatus mtc_fd_link_send(MtcLink *link)
 				break;
 			
 			blocks_out -= iter->n_blocks;
-			if (iter->msg)
-				mtc_msg_unref(iter->msg);
+			mtc_msg_unref(iter->msg);
 			mtc_free(iter);
 		}
 		
-		self->jobs_head = iter;
-		if (! iter)
-			self->jobs_tail = NULL;
+		self->jobs.head = iter;
+		if (iter)
+			iter->n_blocks -= blocks_out;
+		else
+			self->jobs.tail = NULL;
+		
+		if (self->jobs.head && self->iov.len)
+			mtc_error("Assertion failure");
 	}
 	
 	//Next stop signal and return status
-	if (self->iov_clip == 0)
+	if (self->iov.clip == 0)
 	{
 		MtcFDLinkSendJob *iter;
 		int counter = 0;
 		
-		for (iter = self->jobs_head; iter; iter = iter->next)
+		for (iter = self->jobs.head; iter; iter = iter->next)
 		{
 			counter += iter->n_blocks;
 			if (iter->stop_flag)
 				break;
 		}
 		
-		if (iter->stop_flag)
-			self->iov_clip = counter;
+		if (iter)
+			self->iov.clip = counter;
 		else
-			self->iov_clip = -1;
+			self->iov.clip = -1;
 		
 		return MTC_LINK_IO_STOP;
 	}
-	else if (self->jobs_head)
+	else if (self->jobs.head)
 		return MTC_LINK_IO_TEMP;
 	else
 		return MTC_LINK_IO_OK;
@@ -579,10 +554,10 @@ static MtcLinkIOStatus mtc_fd_link_receive
 			(void *) &(self->header), mtc_header_min_size, self->in_fd);
 		
 		//Save status
-		self->read_status = MTC_FD_LINK_GENERIC_HDR;
+		self->read_status = MTC_FD_LINK_HDR;
 		
 		//Fallthrough
-	case MTC_FD_LINK_GENERIC_HDR:
+	case MTC_FD_LINK_HDR:
 		//Try to read generic header.
 		io_res = mtc_reader_read(&(self->reader));
 		
@@ -595,29 +570,9 @@ static MtcLinkIOStatus mtc_fd_link_receive
 		//Convert all byte orders
 		if(! mtc_header_read(&(self->header), header))
 		{
-			mtc_warn("Stream alignment error on link %p, breaking the link.",
+			mtc_warn("Invalid header on link %p, breaking the link.",
 			         self);
 			return MTC_LINK_IO_FAIL;
-		}
-		
-		//If this is a signal our job is done
-		if (header->size == 0)
-		{
-			//Reset state
-			self->read_status = MTC_FD_LINK_INIT_READ;
-			
-			//Return data
-			data->dest = header->dest;
-			data->reply_to = header->reply_to;
-			data->msg = NULL;
-			data->signum = header->data_1;
-			
-			if (data->signum == MTC_SIGNAL_STOP)
-			{
-				self->parent.in_status = MTC_LINK_STATUS_STOPPED;
-			}
-			
-			return MTC_LINK_IO_OK;
 		}
 		
 		//For message the program continues
@@ -654,11 +609,10 @@ static MtcLinkIOStatus mtc_fd_link_receive
 			(&(self->reader), blocks->data, blocks->len, self->in_fd);
 		
 		//Save status
-		self->read_status = MTC_FD_LINK_MSG_SIMPLE;
+		self->read_status = MTC_FD_LINK_SIMPLE;
 		
 		//Fallthrough
-	case MTC_FD_LINK_MSG_SIMPLE:
-		
+	case MTC_FD_LINK_SIMPLE:
 		//Read message main block
 		io_res = mtc_reader_read(&(self->reader));
 		
@@ -695,10 +649,10 @@ static MtcLinkIOStatus mtc_fd_link_receive
 				self->in_fd);
 	
 		//Save status
-		self->read_status = MTC_FD_LINK_MSG_IDX;
+		self->read_status = MTC_FD_LINK_IDX;
 		
 		//Fallthrough
-	case MTC_FD_LINK_MSG_IDX:
+	case MTC_FD_LINK_IDX:
 		//Read the index
 		io_res = mtc_reader_read(&(self->reader));
 		
@@ -766,10 +720,10 @@ static MtcLinkIOStatus mtc_fd_link_receive
 		}
 		
 		//Save status
-		self->read_status = MTC_FD_LINK_MSG_DATA;
+		self->read_status = MTC_FD_LINK_DATA;
 		
 		//Fallthrough
-	case MTC_FD_LINK_MSG_DATA:
+	case MTC_FD_LINK_DATA:
 		//Try to read message data
 		io_res = (ssize_t) mtc_reader_v_read(&(self->reader_v));
 		
@@ -785,10 +739,8 @@ static MtcLinkIOStatus mtc_fd_link_receive
 		
 	return_msg:
 		//Return data
-		data->dest = header->dest;
-		data->reply_to = header->reply_to;
 		data->msg = self->msg;
-		data->signum = 0;
+		data->stop = header->stop;
 		
 		//Reset status
 		self->read_status = MTC_FD_LINK_INIT_READ;
@@ -846,13 +798,12 @@ static void mtc_fd_link_finalize(MtcLink *link)
 	MtcFDLinkSendJob *iter, *next;
 	
 	//Destroy IO vector and all jobs.
-	mtc_free(self->iov);
-	for (iter = self->jobs_head; iter; iter = next)
+	mtc_free(self->iov.mem);
+	for (iter = self->jobs.head; iter; iter = next)
 	{
 		next = iter->next;
 		
-		if (iter->msg)
-			mtc_msg_unref(iter->msg);
+		mtc_msg_unref(iter->msg);
 		mtc_free(iter);
 	}
 	
@@ -882,8 +833,7 @@ static void mtc_fd_link_finalize(MtcLink *link)
 
 //VTable
 const static MtcLinkVTable mtc_fd_link_vtable = {
-	mtc_fd_link_queue_msg,
-	mtc_fd_link_queue_signal,
+	mtc_fd_link_queue,
 	mtc_fd_link_can_send,
 	mtc_fd_link_send,
 	mtc_fd_link_receive,
@@ -906,15 +856,10 @@ MtcLink *mtc_fd_link_new(int out_fd, int in_fd)
 	self->close_fd = 0;
 	
 	//Initialize sending data
-	self->iov = (struct iovec *) 
-		mtc_alloc(sizeof(struct iovec) * MTC_IOV_MIN);
-	self->iov_alen = MTC_IOV_MIN;
-	self->iov_start = 0;
-	self->iov_len = 0;
-	self->iov_clip = -1;
-	self->jobs_head = NULL;
-	self->jobs_tail = NULL;
-	self->iov_ulim = sysconf(_SC_IOV_MAX);
+	mtc_fd_link_init_iov(self);
+	self->jobs.head = NULL;
+	self->jobs.tail = NULL;
+	self->iov.ulim = sysconf(_SC_IOV_MAX);
 	
 	//Initialize reading data
 	self->read_status = MTC_FD_LINK_INIT_READ;
@@ -964,12 +909,18 @@ int mtc_fd_link_get_close_fd(MtcLink *link)
 {
 	MtcFDLink *self = (MtcFDLink *) link;
 	
+	if (link->vtable != &mtc_fd_link_vtable)
+		mtc_error("%p is not MtcFDLink", link);
+	
 	return self->close_fd;
 }
 
 void mtc_fd_link_set_close_fd(MtcLink *link, int val)
 {
 	MtcFDLink *self = (MtcFDLink *) link;
+	
+	if (link->vtable != &mtc_fd_link_vtable)
+		mtc_error("%p is not MtcFDLink", link);
 	
 	self->close_fd = (val ? 1 : 0);
 }

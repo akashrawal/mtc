@@ -17,38 +17,33 @@
  * You should have received a copy of the GNU General Public License
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
+
  
 /**
  * \addtogroup mtc_link
  * \{
  * 
- * Links are abstractions for channels for transfer of messages. 
+ * Links are abstractions for sending and receiving serialized data
+ * over network.
  * 
  * Links are represented by MtcLink structure.
  * 
- * You create a link using mtc_link_new() from two file descriptors,
- * one for sending, other for receiving (which can be same too, e.g. in
- * case of sockets.)
+ * You create a file descriptor link using mtc_fd_link_new() from 
+ * two file descriptors, one for sending, other for receiving 
+ * (which can be same too, e.g. in case of sockets.)
  * 
- * To send messages and signals use mtc_link_queue_msg()
- * and mtc_msg_queue_signal(). These functions only enqueue data for
+ * To send messages use mtc_link_queue(). This only enqueue data for
  * transmission. To actually transmit data use mtc_link_send().
+ * To receive a message use mtc_link_receive().
+ * Whether these functions perform blocking or non-blocking IO is 
+ * upto underlying channel. 
  * 
- * To receive a message or a signal use mtc_link_receive().
- * 
- * In sending and receiving, there is an additional concept of destinations.
- * These are where a message or a signal
- * may be directed after receiving on the other end. 
- * Destinations are uniquely identified within a process by 
- * a destination identifier of type uint64_t
- * See MtcSwitch for more information. 
- * However in MTC Lowlevel this concept of destinations
- * is completely optional, it makes sense in MTC Highlevel where
- * destinations are heavily used.
- * 
- * Links can do both blocking and non-blocking IO. To configure this
- * you can use mtc_link_set_blocking(), or get its file descriptor
- * and run fcntl() calls manually.
+ * A link can be stopped so that no further data transmission or 
+ * reception occurs and then the underlying channel can be accessed 
+ * liberally. Transmission and reception side can be stopped separately.
+ * The transmission side is stopped when a message queued with stop 
+ * paramater set to 1 is sent successfully. Reception side is stopped 
+ * on successful reception of a message with stop paramater set to 1.
  */
 
 ///Structure that represents a link
@@ -59,7 +54,8 @@ typedef enum
 {
 	///Data transfer may take place
 	MTC_LINK_STATUS_OPEN = 0,
-	///Data transfer is temporarily stopped due to MTC_SIGNAL_STOP
+	///Data transfer is temporarily stopped. Underlying channel can 
+	///be accessed liberally. 
 	MTC_LINK_STATUS_STOPPED = 1,
 	///Link is broken.
 	MTC_LINK_STATUS_BROKEN = 2
@@ -68,10 +64,10 @@ typedef enum
 ///Return status of sending or receiving operation on link.
 typedef enum
 {
-	///All data has been sent successfully / a message or a signal
+	///All data has been sent successfully / a message
 	///has been received successfully
 	MTC_LINK_IO_OK = 0,
-	///All data could not be sent because link has been stopped. / 
+	///All data could not be sent because link has been stopped./ 
 	///No data can be received because link has been stopped. 
 	MTC_LINK_IO_STOP = 1,
 	///A temproary error has occurred. Operation might succeed if tried
@@ -84,27 +80,11 @@ typedef enum
 ///Structure to hold the received data
 typedef struct
 {
-	///The destination to send data to
-	uint64_t dest;
-	///The destination where reply to the data may be sent. 
-	uint64_t reply_to;
-	///Message, if this is a message, or NULL if this is a signal.
+	///Message received
 	MtcMsg *msg;
-	///Signal number if this is a signal
-	uint32_t signum;
+	///Set to 1 if link has been stopped
+	int stop;
 } MtcLinkInData;
-
-///Structure to hold callback function to call when link stops
-typedef struct _MtcLinkStopCB MtcLinkStopCB;
-struct _MtcLinkStopCB
-{
-	MtcLinkStopCB *prev, *next;
-	uintptr_t stop_id;
-	///The callback function
-	void (*cb) (MtcLink *link, void *data);
-	///Data to pass to the callback function
-	void *data;
-};
 
 ///Structure to hold tests for an event loop integration to perform
 typedef struct _MtcLinkTest MtcLinkTest;
@@ -113,7 +93,7 @@ struct _MtcLinkTest
 	///pointer to next test, or NULL
 	MtcLinkTest *next;
 	///Name of the test. Should be well known for event loop 
-	///integrations to support. Unused characters should be set to NULL.
+	///integrations to support. Unused characters should be set to 0.
 	char name[8];
 	///Test data follows it
 };
@@ -158,10 +138,8 @@ typedef enum
 //Value table for implementing various types of links
 typedef struct
 {
-	void (*queue_msg) 
-		(MtcLink *self, uint64_t dest, uint64_t reply_to, MtcMsg *msg);
-	void (*queue_signal) 
-		(MtcLink *self, uint64_t dest, uint64_t reply_to, uint32_t signal);
+	void (*queue) 
+		(MtcLink *self, MtcMsg *msg, int stop);
 	int (*can_send) 
 		(MtcLink *self);
 	MtcLinkIOStatus (*send)
@@ -179,9 +157,6 @@ struct _MtcLink
 	int refcount;
 	
 	MtcLinkStatus in_status, out_status;
-	
-	uintptr_t stop_execd, stop_queued;
-	MtcLinkStopCB stop_cbs;
 	
 	const MtcLinkVTable *vtable;
 };
@@ -212,12 +187,12 @@ MtcLinkStatus mtc_link_get_in_status(MtcLink *self);
  */
 void mtc_link_break(MtcLink *self);
 
-/**Resumes data transmission stopped by sending MTC_SIGNAL_STOP signal.
+/**Resumes data transmission.
  * \param self The link
  */
 void mtc_link_resume_out(MtcLink *self);
 
-/**Resumes data reception stopped on receiving MTC_SIGNAL_STOP signal.
+/**Resumes data reception.
  * \param self The link
  */
 void mtc_link_resume_in(MtcLink *self);
@@ -229,28 +204,15 @@ void mtc_link_resume_in(MtcLink *self);
  * The link increments the reference count of the message by 1,
  * and after successful transmission of message or destruction of link
  * it is decremented. So you can call mtc_msg_unref() on the message
- * composer after mtc_link_queue_msg() so that the message  is freed
+ * composer after mtc_link_queue() so that the message  is freed
  * as soon as the message is sent.
  * \param self The link
- * \param dest Identifier of the destination where to route the message after
- *             reception on the other end
- * \param reply_to Identifier of the destination where response to the message 
- *                 might be received. 
  * \param msg The message to send.
+ * \param stop Whether link should be stopped on successful 
+ *             transmission of the message
  */
-void mtc_link_queue_msg
-	(MtcLink *self, uint64_t dest, uint64_t reply_to, MtcMsg *msg);
-
-/**Schedules a signal to be sent through the link.
- * \param self The link
- * \param dest Identifier of the destination where to route the message after
- *             reception on the other end
- * \param reply_to Identifier of the destination where response to the message 
- *                 might be received. 
- * \param signum The signal
- */
-void mtc_link_queue_signal
-	(MtcLink *self, uint64_t dest, uint64_t reply_to, uint32_t signum);
+void mtc_link_queue
+	(MtcLink *self, MtcMsg *msg, int stop);
 
 /**Determines whether mtc_link_send will try to send any data.
  * This can be useful before using select() or poll() functions.
@@ -265,28 +227,9 @@ int mtc_link_can_send(MtcLink *self);
  */
 MtcLinkIOStatus mtc_link_send(MtcLink *self);
 
-/**Adds a callback structure containing a callback function to be 
- * called when link stops due to last queued MTC_SIGNAL_STOP signal.
- * 
- * The callback function is called only once, only for the 
- * MTC_SIGNAL_STOP signal that was queued just before the callback 
- * is added. After calling, the callback structure is removed 
- * automatically.
- * 
+/**Tries to receive one message
  * \param self The link
- * \param cb The callback structure to add
- */
-void mtc_link_add_stop_cb(MtcLink *self, MtcLinkStopCB *cb);
-
-/**Removes the callback structure from associated link so that callback 
- * function will not be called.
- * \param cb The callback structure
- */
-void mtc_link_stop_cb_remove(MtcLinkStopCB *cb);
-
-/**Tries to receive a message or a signal.
- * \param self The link
- * \param data Return location for received message or signal
+ * \param data Return location for received message
  * \return Status of this receiving operation
  */
 MtcLinkIOStatus mtc_link_receive(MtcLink *self, MtcLinkInData *data);
