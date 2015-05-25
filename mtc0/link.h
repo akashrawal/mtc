@@ -61,105 +61,6 @@ typedef enum
 	MTC_LINK_STATUS_BROKEN = 2
 } MtcLinkStatus;
 
-///Return status of sending or receiving operation on link.
-typedef enum
-{
-	///All data has been sent successfully / a message
-	///has been received successfully
-	MTC_LINK_IO_OK = 0,
-	///All data could not be sent because link has been stopped./ 
-	///No data can be received because link has been stopped. 
-	MTC_LINK_IO_STOP = 1,
-	///A temproary error has occurred. Operation might succeed if tried
-	///again.
-	MTC_LINK_IO_TEMP = 2,
-	///An irrecoverable error has occurred. Link is broken now.
-	MTC_LINK_IO_FAIL = 3
-} MtcLinkIOStatus;
-
-///Structure to hold the received data
-typedef struct
-{
-	///Message received
-	MtcMsg *msg;
-	///Set to 1 if link has been stopped
-	int stop;
-} MtcLinkInData;
-
-///Structure to hold tests for an event loop integration to perform
-typedef struct _MtcLinkTest MtcLinkTest;
-struct _MtcLinkTest
-{
-	///pointer to next test, or NULL
-	MtcLinkTest *next;
-	///Name of the test. Should be well known for event loop 
-	///integrations to support. Unused characters should be set to 0.
-	char name[8];
-	///Test data follows it
-};
-
-///Test name for poll() test
-#define MTC_LINK_TEST_POLLFD "pollfd"
-
-///Test data for poll() test
-typedef struct 
-{
-	MtcLinkTest parent;
-	///File descriptor to poll
-	int fd;
-	///Events to check on the file descriptor
-	int events;
-	///After polling, results should be set here
-	int revents;
-} MtcLinkTestPollFD;
-
-///Events supported by the poll() test
-typedef enum 
-{
-	MTC_POLLIN = 1 << 0,
-	MTC_POLLOUT = 1 << 1,
-	MTC_POLLPRI = 1 << 2,
-	MTC_POLLERR = 1 << 3,
-	MTC_POLLHUP = 1 << 4,
-	MTC_POLLNVAL = 1 << 5
-} MtcLinkPollEvents;
-
-///Flags specifying what to do based on test results
-typedef enum 
-{
-	///Data may be sent without blocking
-	MTC_LINK_TEST_SEND = 1 << 0,
-	///There is data ready to be received without blocking
-	MTC_LINK_TEST_RECV = 1 << 1,
-	///Link should be broken
-	MTC_LINK_TEST_BREAK = 1 << 2
-} MtcLinkTestAction;
-
-//Value table for implementing various types of links
-typedef struct
-{
-	void (*queue) 
-		(MtcLink *self, MtcMsg *msg, int stop);
-	int (*can_send) 
-		(MtcLink *self);
-	MtcLinkIOStatus (*send)
-		(MtcLink *self);
-	MtcLinkIOStatus (*receive)
-		(MtcLink *link, MtcLinkInData *data);
-	MtcLinkTest *(*get_tests) (MtcLink *self);
-	int (*eval_test_result) (MtcLink *self);
-	void (*finalize) (MtcLink *self);
-} MtcLinkVTable;
-
-struct _MtcLink
-{
-	//Reference count
-	int refcount;
-	
-	MtcLinkStatus in_status, out_status;
-	
-	const MtcLinkVTable *vtable;
-};
 
 /**Gets the currernt outgoing connection status of the link.
  * 
@@ -221,11 +122,36 @@ void mtc_link_queue
  */
 int mtc_link_can_send(MtcLink *self);
 
+///Return status of sending or receiving operation on link.
+typedef enum
+{
+	///All data has been sent successfully / a message
+	///has been received successfully
+	MTC_LINK_IO_OK = 0,
+	///A message with stop flag was/has been sent. Link is stopped now./ 
+	///No data can be received because link has been stopped. 
+	MTC_LINK_IO_STOP = 1,
+	///A temproary error has occurred. Operation might succeed if tried
+	///again.
+	MTC_LINK_IO_TEMP = 2,
+	///An irrecoverable error has occurred. Link is broken now.
+	MTC_LINK_IO_FAIL = 3
+} MtcLinkIOStatus;
+
 /**Tries to send all queued data
  * \param self The link
  * \return Status of this sending operation
  */
 MtcLinkIOStatus mtc_link_send(MtcLink *self);
+
+///Structure to hold the received data
+typedef struct
+{
+	///Message received
+	MtcMsg *msg;
+	///Set to 1 if link has been stopped
+	int stop;
+} MtcLinkInData;
 
 /**Tries to receive one message
  * \param self The link
@@ -234,19 +160,23 @@ MtcLinkIOStatus mtc_link_send(MtcLink *self);
  */
 MtcLinkIOStatus mtc_link_receive(MtcLink *self, MtcLinkInData *data);
 
-/**Gets the tests for event loop integration
- * \param self The link
- * \return A linked list of tests to be performed. The test results
- *         should also be written to same memory.
- */
-MtcLinkTest *mtc_link_get_tests(MtcLink *self);
+///Event source base type for MtcLink
+typedef struct
+{
+	MtcEventSource parent;
+	
+	MtcLink *link;
+	void (*received) (MtcLink *link, MtcLinkInData in_data, void *data);
+	void (*broken) (MtcLink *link, void *data);
+	void (*stopped) (MtcLink *link, void *data);
+	void *data;
+} MtcLinkEventSource;
 
-/**Evaluates the results of the tests.
- * \param self The link
- * \return Flags specifying the consensus of the tests. 
- *          (See MtcLinkTestAction)
- */
-int mtc_link_eval_test_result(MtcLink *self);
+//TODO: write doc
+MtcLinkEventSource *mtc_link_create_event_source
+	(MtcLink *self, MtcEventMgr *mgr);
+
+MtcLinkEventSource *mtc_link_get_event_source(MtcLink *self);
 
 /**Increments the reference count of the link by one.
  * \param self The link
@@ -266,8 +196,44 @@ void mtc_link_unref(MtcLink *self);
  */
 int mtc_link_get_refcount(MtcLink *self);
 
+//TODO: document how to extend MtcLink
+
+//Value table for implementing various types of links
+typedef struct
+{
+	void (*queue) 
+		(MtcLink *self, MtcMsg *msg, int stop);
+	int (*can_send) 
+		(MtcLink *self);
+	MtcLinkIOStatus (*send)
+		(MtcLink *self);
+	MtcLinkIOStatus (*receive)
+		(MtcLink *self, MtcLinkInData *data);
+	MtcLinkEventSource * (*create_event_source)
+		(MtcLink *self, MtcEventMgr *mgr);
+	void (*action_hook) (MtcLink *self); //Can be NULL
+	void (*finalize) (MtcLink *self);
+} MtcLinkVTable;
+
+struct _MtcLink
+{
+	//Reference count
+	int refcount;
+	
+	MtcLinkStatus in_status, out_status;
+	MtcLinkEventSource *event_source;
+	
+	const MtcLinkVTable *vtable;
+};
+
 //Creates a new link.
 MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable);
+
+//Init and finalize for MtcLinkEventSource
+void mtc_link_event_source_init
+	(MtcLinkEventSource *source, MtcLink *self);
+
+void mtc_link_event_source_destroy(MtcLinkEventSource *source);
 
 /**Creates a new link that works with file descriptors.
  * \param in_fd The file descriptor to receive from.

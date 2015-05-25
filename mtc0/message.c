@@ -48,7 +48,7 @@ MtcMsg *mtc_msg_new(size_t n_bytes, size_t n_blocks)
 	MtcMBlock *m_iter, *m_lim;
 	
 	//Allocate memory
-	self = mtc_alloc2(sizeof(MtcMsg) + (n_blocks * sizeof(MtcMBlock)),
+	self = mtc_alloc2(sizeof(MtcMsg) + ((n_blocks + 1) * sizeof(MtcMBlock)),
 	                  n_bytes, &byte_stream);
 	                  
 	//Initialize 'byte stream'
@@ -88,7 +88,7 @@ MtcMsg *mtc_msg_try_new_allocd(size_t n_bytes, size_t n_blocks,
 	MtcMBlock *m_iter, *m_lim;
 	
 	//Allocate memory
-	self = mtc_tryalloc2(sizeof(MtcMsg) + (n_blocks * sizeof(MtcMBlock)),
+	self = mtc_tryalloc2(sizeof(MtcMsg) + ((n_blocks + 1) * sizeof(MtcMBlock)),
 	                  n_bytes, &byte_stream);
 	if (! self)
 		return NULL;
@@ -209,7 +209,7 @@ MtcMsg *mtc_msg_read(MtcSegment *segment, MtcDStream *dstream)
 	
 	//Allocate memory for message
 	self = (MtcMsg *) mtc_tryalloc
-		(sizeof(MtcMsg) + (n_blocks * sizeof(MtcMBlock)));
+		(sizeof(MtcMsg) + ((n_blocks + 1) * sizeof(MtcMBlock)));
 	if (! self)
 		return NULL;
 		

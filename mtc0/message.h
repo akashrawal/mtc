@@ -35,7 +35,7 @@ typedef struct
 	uint32_t da_flags;
 	
 	uint32_t n_blocks;
-	MtcMBlock blocks[1];
+	MtcMBlock blocks[];
 } MtcMsg;
 
 /**Gets the number of memory blocks inside the message. This number is

@@ -344,7 +344,7 @@ struct _MtcObjectHandle
 	void *object_data;
 	MtcClassInfo info;
 	MtcFnImpl *fns;
-	MtcEventPin event_rings[2];
+	MtcEventPin event_rings[];
 };
 
 struct _MtcDA

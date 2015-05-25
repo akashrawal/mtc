@@ -18,7 +18,6 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-//TODO: Scan this file for further modularization
 #include "common.h"
 
 #include <errno.h>
@@ -44,24 +43,54 @@ MtcLinkStatus mtc_link_get_out_status(MtcLink *self)
 //Considers the incoming connection of the link to be broken. 
 void mtc_link_break(MtcLink *self)
 {
+	int delta = 0;
+	
+	if ((self->in_status != MTC_LINK_STATUS_BROKEN)
+		|| (self->out_status != MTC_LINK_STATUS_BROKEN))
+		delta = 1;
+	
 	self->in_status = MTC_LINK_STATUS_BROKEN;
 	self->out_status = MTC_LINK_STATUS_BROKEN;
+	
+	if (delta == 1)
+		if (self->vtable->action_hook)
+			(* self->vtable->action_hook)(self);
 }
 
 //Resumes data reception
 void mtc_link_resume_in(MtcLink *self)
 {
+	int delta = 0;
+	
 	if (self->in_status == MTC_LINK_STATUS_BROKEN)
 		mtc_error("Attempted to resume a broken link %p", self);
+		
+	if (self->in_status != MTC_LINK_STATUS_OPEN)
+		delta = 1;
+	
 	self->in_status = MTC_LINK_STATUS_OPEN;
+	
+	if (delta == 1)
+		if (self->vtable->action_hook)
+			(* self->vtable->action_hook)(self);
 }
 
 //Resumes data transmission
 void mtc_link_resume_out(MtcLink *self)
 {
+	int delta = 0;
+	
 	if (self->out_status == MTC_LINK_STATUS_BROKEN)
 		mtc_error("Attempted to resume a broken link %p", self);
+	
+	if (self->out_status != MTC_LINK_STATUS_OPEN)
+		delta = 1;
+	
 	self->out_status = MTC_LINK_STATUS_OPEN;
+	
+	if (delta == 1)
+		if (self->vtable->action_hook)
+			(* self->vtable->action_hook)(self);
 }
 
 //Schedules a message to be sent through the link.
@@ -69,6 +98,9 @@ void mtc_link_queue
 	(MtcLink *self, MtcMsg *msg, int stop)
 {
 	(* self->vtable->queue) (self, msg, stop);
+	
+	if (self->vtable->action_hook)
+		(* self->vtable->action_hook)(self);
 }
 
 //Gets whether mtc_link_send will try to send any data.
@@ -102,6 +134,9 @@ MtcLinkIOStatus mtc_link_send(MtcLink *self)
 		self->out_status = MTC_LINK_STATUS_STOPPED;
 	}
 	
+	if (self->vtable->action_hook)
+		(* self->vtable->action_hook)(self);
+	
 	return res;
 }
 
@@ -132,19 +167,24 @@ MtcLinkIOStatus mtc_link_receive(MtcLink *self, MtcLinkInData *data)
 		self->in_status = MTC_LINK_STATUS_STOPPED;
 	}
 	
+	if (self->vtable->action_hook)
+		(* self->vtable->action_hook)(self);
+	
 	return res;
 }
 
-//Gets the tests for event loop integration
-MtcLinkTest *mtc_link_get_tests(MtcLink *self)
+MtcLinkEventSource *mtc_link_create_event_source
+	(MtcLink *self, MtcEventMgr *mgr)
 {
-	return (self->vtable->get_tests(self));
+	if (self->event_source)
+		mtc_error("Event source already created");
+	
+	return (* self->vtable->create_event_source)(self, mgr);
 }
 
-//Evaluates the results of the tests.
-int mtc_link_eval_test_result(MtcLink *self)
+MtcLinkEventSource *mtc_link_get_event_source(MtcLink *self)
 {
-	return (self->vtable->eval_test_result(self));
+	return self->event_source;
 }
 
 //Increments the reference count of the link by one.
@@ -182,8 +222,28 @@ MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable)
 	self->refcount = 1;
 	self->in_status = self->out_status = MTC_LINK_STATUS_OPEN;
 	self->vtable = vtable;
+	self->event_source = NULL;
 	
 	return self;
+}
+
+void mtc_link_event_source_init
+	(MtcLinkEventSource *source, MtcLink *self)
+{
+	self->event_source = source;
+	source->link = self;
+	mtc_link_ref(self);
+	source->received = NULL;
+	source->broken = NULL;
+	source->stopped = NULL;
+	source->data = NULL;
+}
+
+void mtc_link_event_source_destroy(MtcLinkEventSource *source)
+{
+	source->link->event_source = NULL;
+	mtc_link_unref(source->link);
+	source->link = NULL;
 }
 
 /*-------------------------------------------------------------------*/
@@ -252,11 +312,18 @@ typedef struct
 	MtcMsg *msg; //< Message structure
 	
 	//Event loop integration
-	MtcLinkTestPollFD tests[2];
+	MtcEventTestPollFD tests[2];
 	
 	//Preallocated buffers
 	MtcHeaderBuf header;
 } MtcFDLink;
+
+//Event source
+typedef struct
+{
+	MtcLinkEventSource parent;
+	MtcFDLink *link;
+} MtcFDLinkEventSource;
 
 //Functions to manage IO vector
 static struct iovec *mtc_fd_link_alloc_iov
@@ -755,41 +822,189 @@ static MtcLinkIOStatus mtc_fd_link_receive
 		return MTC_LINK_IO_TEMP;
 }
 
-MtcLinkTest *mtc_fd_link_get_tests(MtcLink *link)
+//Event management
+
+#define define_out_idx \
+	int out_idx = (self->in_fd == self->out_fd ? 0 : 1)
+
+static void mtc_fd_link_calc_events
+	(MtcFDLink *self, int *events)
 {
-	MtcFDLink *self = (MtcFDLink *) link;
-	int out_idx = self->in_fd == self->out_fd ? 0 : 1;
+	MtcLink *link = (MtcLink *) self;
+	define_out_idx;
 	
-	self->tests[0].events = MTC_POLLIN;
-	self->tests[0].revents = 0;
-	self->tests[1].events = 0;
-	self->tests[1].revents = 0;
+	events[0] = 0;
+	events[1] = 0;
 	
-	if (mtc_fd_link_can_send(link))
-		self->tests[out_idx].events |= MTC_POLLOUT;
+	if (mtc_link_get_in_status(link) == MTC_LINK_STATUS_OPEN)
+		events[0] |= MTC_POLLIN;
 	
-	return (MtcLinkTest *) self->tests;
+	if ((mtc_link_get_out_status(link) == MTC_LINK_STATUS_OPEN) 
+		&& (mtc_fd_link_can_send(link)))
+		events[out_idx] |= MTC_POLLOUT;
 }
 
-int mtc_fd_link_eval_test_result(MtcLink *link)
+static void mtc_fd_link_event_source_event
+	(MtcEventSource *source, MtcEventFlags flags)
+{
+	MtcLinkEventSource *ev = (MtcLinkEventSource *) source;
+	MtcFDLink *self = (MtcFDLink *) ev->link;
+	
+	mtc_event_source_ref(source);
+	
+	define_out_idx;
+	int status;
+	MtcLinkInData in_data;
+	
+	if (flags & MTC_EVENT_CHECK)
+	{
+		//Error condition
+		if (self->tests[0].revents & (MTC_POLLERR | MTC_POLLHUP | MTC_POLLNVAL)
+			|| self->tests[out_idx].revents & (MTC_POLLERR | MTC_POLLHUP | MTC_POLLNVAL))
+		{
+			mtc_link_break((MtcLink *) self);
+			if (mtc_event_source_get_active(source))
+				(* ev->broken)((MtcLink *) self, ev->data);
+			goto end;
+		}
+		
+		//Sending
+		if (self->tests[out_idx].revents & (MTC_POLLOUT))
+		{
+			status = mtc_link_send((MtcLink *) self);
+			if (status == MTC_LINK_IO_STOP)
+			{
+				if (mtc_event_source_get_active(source))
+					(* ev->stopped)((MtcLink *) self, ev->data);
+			}
+			else if (status == MTC_LINK_IO_FAIL)
+			{
+				if (mtc_event_source_get_active(source))
+					(* ev->broken)((MtcLink *) self, ev->data);
+				goto end;
+			}
+		}
+		
+		//Receiving
+		if (self->tests[0].revents & (MTC_POLLIN))
+		{
+			while (1)
+			{
+				status = mtc_link_receive((MtcLink *) self, &in_data);
+				
+				if (status == MTC_LINK_IO_OK)
+				{
+					if (mtc_event_source_get_active(source))
+						(* ev->received) 
+							((MtcLink *) self, in_data, ev->data);
+				}
+				else if (status == MTC_LINK_IO_FAIL)
+				{
+					if (mtc_event_source_get_active(source))
+						(* ev->broken)((MtcLink *) self, ev->data);
+					goto end;
+				}
+				else
+					break;
+			}
+		}
+	}
+	
+end:
+	mtc_event_source_unref(source);
+}
+
+static void mtc_fd_link_event_source_destroy(MtcEventSource *source)
+{
+	mtc_link_event_source_destroy((MtcLinkEventSource *) source);
+}
+
+static void mtc_fd_link_event_source_set_active
+	(MtcEventSource *source, int value)
+{
+	MtcLinkEventSource *ev = (MtcLinkEventSource *) source;
+	MtcFDLink *self = (MtcFDLink *) ev->link;
+	
+	if (value)
+	{
+		mtc_event_source_prepare
+			(source, (MtcEventTest *) self->tests);
+	}
+	else
+	{
+		mtc_event_source_prepare
+			(source, (MtcEventTest *) NULL);
+	}
+}
+
+static MtcEventSourceVTable mtc_fd_link_event_source_vtable = 
+{
+	mtc_fd_link_event_source_event, 
+	mtc_fd_link_event_source_destroy,
+	mtc_fd_link_event_source_set_active
+};
+
+static MtcLinkEventSource *mtc_fd_link_create_event_source
+	(MtcLink *link, MtcEventMgr *mgr)
 {
 	MtcFDLink *self = (MtcFDLink *) link;
-	int out_idx = self->in_fd == self->out_fd ? 0 : 1;
-	int res = 0;
+	MtcFDLinkEventSource *source;
+	define_out_idx;
+	int events[2];
+	MtcEventTest constdata = 
+		{NULL, {'p', 'o', 'l', 'l', 'f', 'd', '\0', '\0'}};
 	
-	//Error condition
-	if (self->tests[0].revents & (MTC_POLLERR | MTC_POLLHUP | MTC_POLLNVAL)
-		|| self->tests[1].revents & (MTC_POLLERR | MTC_POLLHUP | MTC_POLLNVAL))
-		return MTC_LINK_TEST_BREAK;
+	source = (MtcFDLinkEventSource *) mtc_event_mgr_create_source
+		(mgr, sizeof(MtcFDLinkEventSource), 
+		&mtc_fd_link_event_source_vtable);
 	
-	//Others
-	if (self->tests[0].revents & (MTC_POLLIN))
-		res |= MTC_LINK_TEST_RECV;
+	mtc_link_event_source_init((MtcLinkEventSource *) source, link);
 	
-	if (self->tests[out_idx].revents & (MTC_POLLOUT))
-		res |= MTC_LINK_TEST_SEND;
+	//Initialize test data
+	mtc_fd_link_calc_events(self, events);
+	self->tests[0].parent = constdata;
+	self->tests[0].fd = self->in_fd;
+	self->tests[0].events = events[0];
+	self->tests[0].revents = 0;
+	self->tests[1].parent = constdata;
+	self->tests[1].fd = self->out_fd;
+	self->tests[1].events = events[1];
+	self->tests[1].revents = 0;
 	
-	return res;
+	if (out_idx == 1)
+	{
+		self->tests[0].parent.next = (MtcEventTest *) self->tests + 1;
+	}
+	
+	return (MtcLinkEventSource *) source;
+}
+
+static void mtc_fd_link_action_hook(MtcLink *link)
+{
+	MtcFDLink *self = (MtcFDLink *) link;
+	int events[2];
+	
+	MtcFDLinkEventSource *source = (MtcFDLinkEventSource *)
+		mtc_link_get_event_source((MtcLink *) self);
+	
+	if (! source)
+		return;
+	
+	mtc_fd_link_calc_events(self, events);
+	
+	if ((events[0] != self->tests[0].events) 
+		|| (events[1] != self->tests[1].events))
+	{
+		mtc_event_source_prepare((MtcEventSource *) source, NULL);
+		self->tests[0].events = events[0];
+		self->tests[1].events = events[1];
+		if (mtc_event_source_get_active((MtcEventSource *) source))
+		{
+			mtc_event_source_prepare
+				((MtcEventSource *) source, 
+				(MtcEventTest *) self->tests);
+		}
+	}
 }
 
 static void mtc_fd_link_finalize(MtcLink *link)
@@ -837,8 +1052,8 @@ const static MtcLinkVTable mtc_fd_link_vtable = {
 	mtc_fd_link_can_send,
 	mtc_fd_link_send,
 	mtc_fd_link_receive,
-	mtc_fd_link_get_tests,
-	mtc_fd_link_eval_test_result,
+	mtc_fd_link_create_event_source,
+	mtc_fd_link_action_hook,
 	mtc_fd_link_finalize
 };
 
@@ -864,23 +1079,6 @@ MtcLink *mtc_fd_link_new(int out_fd, int in_fd)
 	//Initialize reading data
 	self->read_status = MTC_FD_LINK_INIT_READ;
 	self->mem = self->msg = NULL;
-	
-	//Initialize test data
-	//events and revents will be initialized later. 
-	{
-		MtcLinkTest constdata = 
-			{NULL, {'p', 'o', 'l', 'l', 'f', 'd', '\0', '\0'}};
-		
-		self->tests[0].parent = constdata;
-		self->tests[0].fd = in_fd;
-		if (in_fd != out_fd)
-		{
-			self->tests[0].parent.next = (MtcLinkTest *) self->tests + 1;
-			
-			self->tests[1].parent = constdata;
-			self->tests[1].fd = out_fd;
-		}
-	}
 	
 	return (MtcLink *) self;
 }

@@ -11,6 +11,7 @@ AM_PROG_AR
 LT_INIT
 
 # Checks for programs.
+#TODO: Enforce C11
 AC_PROG_CC_C99
 AM_PROG_CC_C_O
 
@@ -177,5 +178,3 @@ AC_CONFIG_FILES([Makefile
                  doc/Makefile])
 AC_CONFIG_HEADERS([config.h])
 AC_OUTPUT
-
-#TODO: C standards

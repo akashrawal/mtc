@@ -460,9 +460,7 @@ typedef struct
 	
 	//'block size index' (BSI)
 	//Indicates size of each extra block followed by the actual data.
-	//The size 2 here has no semantic meaning and is not to be 
-	//respected.
-	uint32_t data[2];
+	uint32_t data[];
 } MtcHeader;
 
 //Structure containing only useful data elements from MtcHeader
@@ -473,8 +471,6 @@ typedef struct
 } MtcHeaderData;
 
 //Type for the buffer for message
-//uint64_t is just to force alignment with hope of increasing 
-//performance
 typedef struct {uint64_t data[2]; } MtcHeaderBuf;
 
 //Macro to calculate size of the header
@@ -483,7 +479,7 @@ typedef struct {uint64_t data[2]; } MtcHeaderBuf;
 //Macro to calculate minimum size of the header
 //It is the size of data that is read first by MtcFDLink which tells
 //about size of the rest of the header
-#define mtc_header_min_size (12)
+#define mtc_header_min_size (mtc_header_sizeof(1))
 
 //Serialize the header for a message
 void mtc_header_write

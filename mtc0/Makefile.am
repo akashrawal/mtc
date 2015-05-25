@@ -9,18 +9,19 @@ CLEANFILES = generated.h
 BUILT_SOURCES = generated.h
 
 #libmtc0.la
-mtc_c_files =  \
+mtc_c =  \
 	utils.c        \
 	types.c        \
 	serialize.c    \
 	message.c      \
 	io.c           \
+	event.c        \
 	link.c         
 #	hl_base.c      \
 #	afl.c          \
 #	da.c      
 
-mtc_h_files =  \
+mtc_h =  \
 	mtc.h          \
 	common.h       \
 	utils.h        \
@@ -28,12 +29,13 @@ mtc_h_files =  \
 	serialize.h    \
 	message.h      \
 	io.h           \
+	event.h        \
 	link.h         
 #	hl_base.h      \
 #	afl.h          \
 #	da.h   
      
-libmtc0_la_SOURCES = $(mtc_c_files) $(mtc_h_files)       
+libmtc0_la_SOURCES = $(mtc_c) $(mtc_h)       
 	        
 nodist_libmtc0_la_SOURCES = generated.h
 libmtc0_la_CFLAGS = -Wall -I$(top_builddir) -I$(top_srcdir)
@@ -41,7 +43,7 @@ libmtc0_la_LDFLAGS = -lm
 
 #Headers
 mtcincludedir = $(includedir)/mtc0
-mtcinclude_HEADERS = $(mtc_h_files)                
+mtcinclude_HEADERS = $(mtc_h)                
                         
 
 nodist_mtcinclude_HEADERS = generated.h    

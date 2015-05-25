@@ -467,7 +467,7 @@ MtcObjectHandle *mtc_object_handle_new
 	
 	self = (MtcObjectHandle *) mtc_alloc
 		(sizeof(MtcObjectHandle) 
-			+ ((info.n_evts - 2) * sizeof(MtcEventPin)));
+			+ ((info.n_evts) * sizeof(MtcEventPin)));
 	
 	//Add it to the destination allocator
 	if (static_id > 0)
