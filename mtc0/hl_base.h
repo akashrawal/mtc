@@ -29,15 +29,20 @@
 //The first 4 bytes is an integer referring to a function or event.
 //Called member pointer
 
-#define MTC_MEMBER_PTR_NULL    ((uint32_t) 0)
-#define MTC_MEMBER_PTR_FN      ((uint32_t) 1L << 30)
-#define MTC_MEMBER_PTR_EVT     ((uint32_t) 2L << 30)
-#define MTC_MEMBER_PTR_MASK    ((uint32_t) 3L << 30)
+#define MTC_MEMBER_PTR_NULL               ((uint32_t) 0)
+#define MTC_MEMBER_PTR_FN                 ((uint32_t) 1L << 28)
+#define MTC_MEMBER_PTR_FN_RETURN          ((uint32_t) 2L << 28)
+#define MTC_MEMBER_PTR_EVT_CONNECT        ((uint32_t) 3L << 28)
+#define MTC_MEMBER_PTR_EVT_CONNECTED      ((uint32_t) 4L << 28)
+#define MTC_MEMBER_PTR_EVT_DISCONNECT     ((uint32_t) 5L << 28)
+#define MTC_MEMBER_PTR_EVT_RAISE          ((uint32_t) 6L << 28)
+#define MTC_MEMBER_PTR_ERROR              ((uint32_t) 7L << 28)
+#define MTC_MEMBER_PTR_MASK               ((uint32_t) 15L << 28)
 
 #define MTC_MEMBER_PTR_IS_FN(ptr) \
 	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_FN)
 
-#define MTC_MEMBER_PTR_IS_EVT(ptr) \
+#define MTC_MEMBER_PTR_IS_EVT_CONNECT(ptr) \
 	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_EVT)
 
 #define MTC_MEMBER_PTR_GET_IDX(ptr) \
@@ -45,11 +50,15 @@
 
 uint32_t mtc_msg_read_member_ptr(MtcMsg *msg);
 
+//TODO: Delete
+/*
 typedef enum
 {
 	MTC_DA_FLAG_MSG_IN_REPLY = 1 << 0
 } MtcDAFlags;
+*/
 
+//TODO: These require a rewrite
 #define MTC_READ_ARGS(fn, msg, argp, handle, peer, reply_to) \
 do { \
 	if (fn ## __read(msg, argp) < 0) \
@@ -76,12 +85,15 @@ typedef struct
 	int n_evts;
 } MtcClassInfo;
 
+//TODO: Delete
+/*
 #define MTC_EVENT_TAG_CREATE(id, msg_in_reply) \
 	((((uint32_t) (id)) << 1) | ((uint32_t) (msg_in_reply)))
 
 #define MTC_EVENT_TAG_GET_ID(tag) ((tag) >> 1)
 
 #define MTC_EVENT_TAG_GET_MSG_IN_REPLY(tag) ((tag) & 1)
+*/
 
 /**
  * \}
