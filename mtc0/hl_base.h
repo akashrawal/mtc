@@ -32,18 +32,23 @@
 #define MTC_MEMBER_PTR_NULL               ((uint32_t) 0)
 #define MTC_MEMBER_PTR_FN                 ((uint32_t) 1L << 28)
 #define MTC_MEMBER_PTR_FN_RETURN          ((uint32_t) 2L << 28)
+//TODO: Events to be implemented later
+/*
 #define MTC_MEMBER_PTR_EVT_CONNECT        ((uint32_t) 3L << 28)
 #define MTC_MEMBER_PTR_EVT_CONNECTED      ((uint32_t) 4L << 28)
 #define MTC_MEMBER_PTR_EVT_DISCONNECT     ((uint32_t) 5L << 28)
 #define MTC_MEMBER_PTR_EVT_RAISE          ((uint32_t) 6L << 28)
+*/
 #define MTC_MEMBER_PTR_ERROR              ((uint32_t) 7L << 28)
 #define MTC_MEMBER_PTR_MASK               ((uint32_t) 15L << 28)
 
 #define MTC_MEMBER_PTR_IS_FN(ptr) \
 	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_FN)
 
+/*
 #define MTC_MEMBER_PTR_IS_EVT_CONNECT(ptr) \
 	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_EVT)
+	*/
 
 #define MTC_MEMBER_PTR_GET_IDX(ptr) \
 	((ptr) & (~ MTC_MEMBER_PTR_MASK))
