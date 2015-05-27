@@ -60,7 +60,8 @@ MtcMsg *mtc_msg_new(size_t n_bytes, size_t n_blocks)
 	//Initialize other members
 	self->n_blocks = n_blocks + 1;
 	self->refcount = 1;
-	self->da_flags = 0;
+	//TODO: Delete
+	//self->da_flags = 0;
 	
 	//Initialize memory block array
 	m_iter = self->blocks + 1;
@@ -102,7 +103,8 @@ MtcMsg *mtc_msg_try_new_allocd(size_t n_bytes, size_t n_blocks,
 	//Initialize other members
 	self->n_blocks = n_blocks + 1;
 	self->refcount = 1;
-	self->da_flags = 0;
+	//TODO: Delete
+	//self->da_flags = 0;
 	
 	//Allocate other memory blocks
 	m_iter = self->blocks + 1;

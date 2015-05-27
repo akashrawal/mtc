@@ -34,3 +34,17 @@ uint32_t mtc_msg_read_member_ptr(MtcMsg *msg)
 	
 	return res;
 }
+
+MtcMsg *mtc_msg_with_member_ptr_only(uint32_t member_ptr)
+{
+	MtcMsg *msg;
+	MtcMBlock byte_stream;
+	
+	msg = mtc_msg_new(4, 0);
+	
+	byte_stream = mtc_msg_get_blocks(msg)[0];
+	
+	mtc_uint32_copy_to_le(byte_stream.data, &member_ptr);
+	
+	return msg;
+}

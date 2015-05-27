@@ -54,6 +54,7 @@
 	((ptr) & (~ MTC_MEMBER_PTR_MASK))
 
 uint32_t mtc_msg_read_member_ptr(MtcMsg *msg);
+MtcMsg *mtc_msg_with_member_ptr_only(uint32_t member_ptr);
 
 //TODO: Delete
 /*

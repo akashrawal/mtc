@@ -24,12 +24,16 @@
 
 void mtc_write_one_way_serializers
 		(MtcSymbolClass *klass, MtcSymbolVar *list, MtcDLen base_size,
-		char *member, char *as, char *sn, char *dsn, int fn_idx,
-		int msg_in_reply,
+		char *member, char *as, char *sn, char *dsn, 
+		char *member_ptr_type, int idx,
 		FILE *h_file, FILE *c_file)
+//as: argument structure
+//sn: serializer name
+//dsn: deserializer name
 {
-	if (list)
-	{
+	//TODO: Fix for serializations wit no arguments
+	//if (list)
+	//{
 		MtcSymbolVar *iter;
 		
 		//Write the structure definition
@@ -63,15 +67,15 @@ void mtc_write_one_way_serializers
 		
 		//Declarations
 		fprintf(c_file, 
-			"    %suint32_t member_ptr = MTC_MEMBER_PTR_FN | %d;\n"
+			"    uint32_t member_ptr = %s | %d;\n"
 			"    MtcMsg *res;\n"
 			"    MtcDLen size = {%d, %d};\n"
 			"    MtcSegment seg_v;\n"
 			"    MtcSegment *seg = &seg_v;\n"
 			"    MtcDStream dstream_v;\n"
 			"    MtcDStream *dstream = &dstream_v;\n\n", 
-			fn_idx >= 0 ? "" : "//", fn_idx, 
-			(int) base_size.n_bytes + (fn_idx >= 0 ? 4 : 0), 
+			member_ptr_type, idx, 
+			(int) base_size.n_bytes + 4, 
 			(int) base_size.n_blocks);
 		
 		//Count size of the message
@@ -83,21 +87,23 @@ void mtc_write_one_way_serializers
 			"(size.n_bytes, size.n_blocks);\n"
 			"    mtc_msg_iter(res, dstream);\n"
 			"    mtc_dstream_get_segment(dstream, %d, %d, seg);\n\n",
-			(int) base_size.n_bytes + (fn_idx >= 0 ? 4 : 0), 
+			(int) base_size.n_bytes + 4, 
 			(int) base_size.n_blocks);
 		
 		//Write function number as member pointer
-		if (fn_idx >= 0)
-			fprintf(c_file, 
-				"    mtc_segment_write_uint32(seg, member_ptr);\n\n");
+		fprintf(c_file, 
+			"    mtc_segment_write_uint32(seg, member_ptr);\n\n");
 		
 		//Write functon arguments
 		mtc_var_list_code_for_write(list, "args->", c_file);
 		
+		//TODO: delete
+		/*
 		//Expect message in reply to a function call?
 		if (msg_in_reply)
 			fprintf(c_file, 
 				"\n    res->da_flags |= MTC_DA_FLAG_MSG_IN_REPLY;\n");
+				*/
 		
 		//Write function return value
 		fprintf(c_file, "\n"
@@ -139,10 +145,9 @@ void mtc_write_one_way_serializers
 		//Get the segment
 		fprintf(c_file, 
 			"    mtc_msg_iter(msg, dstream);\n"
-			"    %sdstream->bytes += 4;\n"
+			"    dstream->bytes += 4;\n"
 			"    if (mtc_dstream_get_segment(dstream, %d, %d, seg) < 0)\n"
 			"        goto _mtc_return;\n\n",
-			fn_idx >= 0 ? "" : "//",
 			(int) base_size.n_bytes, 
 			(int) base_size.n_blocks);
 		
@@ -163,7 +168,9 @@ void mtc_write_one_way_serializers
 			"    mtc_msg_unref(msg);\n"
 			"    return -1;\n"
 			"}\n\n");
-	}
+	//}
+	//TODO: Delete
+	/*
 	else if (fn_idx >= 0)
 	{
 		//Serialiation function:
@@ -213,6 +220,7 @@ void mtc_write_one_way_serializers
 			"    return res;\n"
 			"}\n\n");
 	}
+	*/
 }
 
 //Now generate code for the class
@@ -281,6 +289,8 @@ void mtc_class_gen_code
 		fprintf(h_file, "#define %s__%s__IDX %d\n\n",
 			klass->parent.name, fn->parent.name, i);
 		
+		//TODO: Delete
+		/*
 		//Write code for input arguments
 		mtc_write_one_way_serializers
 			(klass, fn->in_args, fn->in_args_base_size, 
@@ -297,8 +307,25 @@ void mtc_class_gen_code
 				0,
 				h_file, c_file);
 		}
+		*/
+		
+		//Write code for input arguments
+		mtc_write_one_way_serializers
+			(klass, fn->in_args, fn->in_args_base_size, 
+			fn->parent.name, "in_args", "msg", "read",
+			"MTC_MEMBER_PTR_FN", i, 
+			h_file, c_file);
+		
+		//Write code for output arguments,
+		mtc_write_one_way_serializers
+			(klass, fn->out_args, fn->out_args_base_size, 
+			fn->parent.name, "out_args", "reply", "finish",
+			"MTC_MEMBER_PTR_FN", 0, 
+			h_file, c_file);
 	}
 	
+	//TODO: Event is for eventually
+	/*
 	for (evt = klass->events, i = n_parent_evts; evt; 
 		evt = (MtcSymbolEvent *) evt->parent.next, i++)
 	{
@@ -323,4 +350,5 @@ void mtc_class_gen_code
 				h_file, c_file);
 		}
 	}
+	*/
 }

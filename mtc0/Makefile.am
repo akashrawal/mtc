@@ -16,9 +16,9 @@ mtc_c =  \
 	message.c      \
 	io.c           \
 	event.c        \
-	link.c         
-#	hl_base.c      \
-#	afl.c          \
+	link.c         \
+	hl_base.c      \
+	afl.c          
 #	da.c      
 
 mtc_h =  \
@@ -30,9 +30,9 @@ mtc_h =  \
 	message.h      \
 	io.h           \
 	event.h        \
-	link.h         
-#	hl_base.h      \
-#	afl.h          \
+	link.h         \
+	hl_base.h      \
+	afl.h          
 #	da.h   
      
 libmtc0_la_SOURCES = $(mtc_c) $(mtc_h)       
