@@ -147,7 +147,7 @@ void mtc_afl_init(MtcAfl *self)
 
 //Searches for a key in the data structure. If found, the corresponding
 //item is returned or NULL is returned.
-MtcAflItem *mtc_afl_lookup(MtcAfl *self, uint32_t key)
+MtcAflItem *mtc_afl_lookup(MtcAfl *self, unsigned int key)
 {
 	//Get slot
 	MtcAflItem *iter = self->table[key % self->alloc_len];
@@ -166,9 +166,9 @@ MtcAflItem *mtc_afl_lookup(MtcAfl *self, uint32_t key)
 }
 
 //Inserts an item inside the data structure.
-uint32_t mtc_afl_insert(MtcAfl *self, MtcAflItem *item)
+unsigned int mtc_afl_insert(MtcAfl *self, MtcAflItem *item)
 {
-	uint32_t key;
+	unsigned int key;
 	do
 	{
 		//check whether slot can be allocated from free_list
@@ -198,7 +198,7 @@ uint32_t mtc_afl_insert(MtcAfl *self, MtcAflItem *item)
 }
 
 //Removes an item associated with the given key.
-MtcAflItem *mtc_afl_remove(MtcAfl *self, uint32_t key)
+MtcAflItem *mtc_afl_remove(MtcAfl *self, unsigned int key)
 {
 	//Get slot
 	MtcAflItem **slot = self->table + (key % self->alloc_len);
@@ -251,7 +251,7 @@ MtcAflItem *mtc_afl_remove(MtcAfl *self, uint32_t key)
 
 //Replaces an item associated with the given key with given replacement.
 MtcAflItem *mtc_afl_replace
-	(MtcAfl *self, uint32_t key, MtcAflItem *replacement)
+	(MtcAfl *self, unsigned int key, MtcAflItem *replacement)
 {
 	//Get slot
 	MtcAflItem **slot = self->table + (key % self->alloc_len);

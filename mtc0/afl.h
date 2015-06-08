@@ -18,6 +18,8 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+//TODO: Discuss whether to keep this API exposed?
+
 /**\addtogroup mtc_afl
  * \{
  * MtcAfl is simply a data structure for storing items, 
@@ -36,7 +38,7 @@ typedef struct _MtcAflItem MtcAflItem;
 struct _MtcAflItem
 {
 	///The key assigned to the item
-	uint32_t key;
+	unsigned int key;
 	
 	#ifndef DOXYGEN_SKIP_THIS
 	MtcAflItem *next;
@@ -49,7 +51,7 @@ typedef struct
 	MtcAflItem **table;
 	MtcAflItem **free_list;
 	size_t alloc_len;
-	uint32_t n_elements;
+	unsigned int n_elements;
 } MtcAfl;
 
 /**Initializes the data structure
@@ -63,7 +65,7 @@ void mtc_afl_init(MtcAfl *self);
  * \param key The key to search.
  * \return The item corresponding to the key if found, else NULL.
  */
-MtcAflItem *mtc_afl_lookup(MtcAfl *self, uint32_t key);
+MtcAflItem *mtc_afl_lookup(MtcAfl *self, unsigned int key);
 
 /**Inserts an item into the data structure.
  * You store data by derriving a structure from MtcAflItem and 
@@ -85,14 +87,14 @@ MtcAflItem *mtc_afl_lookup(MtcAfl *self, uint32_t key);
  * \param item the item to insert
  * \return The key assigned to the item
  */
-uint32_t mtc_afl_insert(MtcAfl *self, MtcAflItem *item);
+unsigned int mtc_afl_insert(MtcAfl *self, MtcAflItem *item);
 
 /**Removes an item associated with the given key.
  * \param self The data structure
  * \param key The key
  * \return The item if found and removed, or NULL.
  */
-MtcAflItem *mtc_afl_remove(MtcAfl *self, uint32_t key);
+MtcAflItem *mtc_afl_remove(MtcAfl *self, unsigned int key);
 
 /**Replaces an item associated with the given key with given 
  * replacement.
@@ -102,7 +104,7 @@ MtcAflItem *mtc_afl_remove(MtcAfl *self, uint32_t key);
  * \return The item if found and removed, or NULL.
  */
 MtcAflItem *mtc_afl_replace
-	(MtcAfl *self, uint32_t key, MtcAflItem *replacement);
+	(MtcAfl *self, unsigned int key, MtcAflItem *replacement);
 
 /**Returns the number of items in the data structure.
  * \param self The data structure.

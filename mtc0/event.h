@@ -18,6 +18,9 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+//TODO: Standardise memory management in inheritance:
+//who is responsible for freeing object's memory?
+
 //TODO: improve docs
 
 //MtcEventMgr user API

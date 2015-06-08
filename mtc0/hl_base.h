@@ -17,6 +17,8 @@
  * You should have received a copy of the GNU General Public License
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
+ 
+//TODO: Decide to delete event related stuff?
 
 /**
  * \addtogroup mtc_hl
@@ -32,13 +34,10 @@
 #define MTC_MEMBER_PTR_NULL               ((uint32_t) 0)
 #define MTC_MEMBER_PTR_FN                 ((uint32_t) 1L << 28)
 #define MTC_MEMBER_PTR_FN_RETURN          ((uint32_t) 2L << 28)
-//TODO: Events to be implemented later
-/*
-#define MTC_MEMBER_PTR_EVT_CONNECT        ((uint32_t) 3L << 28)
-#define MTC_MEMBER_PTR_EVT_CONNECTED      ((uint32_t) 4L << 28)
-#define MTC_MEMBER_PTR_EVT_DISCONNECT     ((uint32_t) 5L << 28)
-#define MTC_MEMBER_PTR_EVT_RAISE          ((uint32_t) 6L << 28)
-*/
+//#define MTC_MEMBER_PTR_EVT_CONNECT        ((uint32_t) 3L << 28)
+//#define MTC_MEMBER_PTR_EVT_CONNECTED      ((uint32_t) 4L << 28)
+//#define MTC_MEMBER_PTR_EVT_DISCONNECT     ((uint32_t) 5L << 28)
+//#define MTC_MEMBER_PTR_EVT_RAISE          ((uint32_t) 6L << 28)
 #define MTC_MEMBER_PTR_ERROR              ((uint32_t) 7L << 28)
 #define MTC_MEMBER_PTR_MASK               ((uint32_t) 15L << 28)
 
@@ -48,12 +47,28 @@
 /*
 #define MTC_MEMBER_PTR_IS_EVT_CONNECT(ptr) \
 	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_EVT)
-	*/
+*/
+
+#define MTC_MEMBER_PTR_IS_ERROR(ptr) \
+	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_ERROR)
 
 #define MTC_MEMBER_PTR_GET_IDX(ptr) \
 	((ptr) & (~ MTC_MEMBER_PTR_MASK))
+	
+//TODO: Add enums as needed
+typedef enum
+{	
+	MTC_ERROR_TEMP = -1,
+	MTC_FC_SUCCESS = -2,
+	//MTC_EVENT_RAISE = -2,
+	
+	MTC_ERROR_INVALID_PEER = 1,
+	MTC_ERROR_PEER_RESET = 2,
+	MTC_ERROR_INVALID_DEST = 3
+} MtcStatus;
 
 uint32_t mtc_msg_read_member_ptr(MtcMsg *msg);
+
 MtcMsg *mtc_msg_with_member_ptr_only(uint32_t member_ptr);
 
 //TODO: Delete
@@ -64,7 +79,8 @@ typedef enum
 } MtcDAFlags;
 */
 
-//TODO: These require a rewrite
+//TODO: Delete these
+/*
 #define MTC_READ_ARGS(fn, msg, argp, handle, peer, reply_to) \
 do { \
 	if (fn ## __read(msg, argp) < 0) \
@@ -84,12 +100,43 @@ do { \
 		return; \
 	} \
 } while (0)
+*/
+
+typedef MtcMsg *(*MtcSerFn) (void *strx);
+typedef int (*MtcDeserFn)   (MtcMsg *msg, void *strx);
+typedef void (*MtcFreeFn)   (void *strx);
 
 typedef struct 
 {
-	int n_fns;
-	int n_evts;
-} MtcClassInfo;
+	int        id;
+	size_t     in_args_c_size;
+	MtcSerFn   in_args_ser;
+	MtcDeserFn in_args_deser;
+	MtcFreeFn  in_args_free;
+	size_t     out_args_c_size;
+	MtcSerFn   out_args_ser;
+	MtcDeserFn out_args_deser;
+	MtcFreeFn  out_args_free;
+} MtcFCBinary;
+
+/*
+typedef struct
+{
+	int        id;
+	size_t     args_c_size;
+	MtcSerFn   args_ser;
+	MtcDeserFn args_deser;
+	MtcFreeFn  args_free;
+} MtcEventBinary;
+*/
+
+typedef struct 
+{
+	int             n_fns;
+	//int             n_evts;
+	MtcFCBinary     *fns;
+	//MtcEventBinary  *evts;
+} MtcClassBinary;
 
 //TODO: Delete
 /*
