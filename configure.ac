@@ -1,6 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
+#TODO: update website
 AC_INIT([MTC],[0.0.0],[],[mtc],[http://code.google.com/p/mtc-ipc-library])
 AC_CONFIG_SRCDIR([mtc0/common.h])
 AC_CONFIG_MACRO_DIR([m4])

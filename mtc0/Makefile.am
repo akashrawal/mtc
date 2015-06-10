@@ -18,8 +18,8 @@ mtc_c =  \
 	event.c        \
 	link.c         \
 	hl_base.c      \
-	afl.c          
-#	da.c      
+	afl.c          \
+	router.c  
 
 mtc_h =  \
 	mtc.h          \
@@ -32,7 +32,8 @@ mtc_h =  \
 	event.h        \
 	link.h         \
 	hl_base.h      \
-	afl.h          
+	afl.h          \
+	router.h
 #	da.h   
      
 libmtc0_la_SOURCES = $(mtc_c) $(mtc_h)       

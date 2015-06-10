@@ -31,10 +31,6 @@ typedef struct
 	//Reference count
 	int refcount;
 	
-	//TODO: Delete
-	/////Flags used by destination allocator
-	//uint32_t da_flags;
-	
 	uint32_t n_blocks;
 	MtcMBlock blocks[];
 } MtcMsg;

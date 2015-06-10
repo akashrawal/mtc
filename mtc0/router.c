@@ -24,6 +24,8 @@
 
 //TODO: static and dynamic addressing interface?
 
+//TODO: Trap/logging for debugging invalid/unintended messages?
+
 //Router
 
 //Dynamic destinations submodule
@@ -62,7 +64,7 @@ static void mtc_router_add_dynamic_dest
 	//Set address
 	dyn_addr = (MtcDynamicAddr *) dest->addr_data;
 	dyn_addr->key = key;
-	memcpy(dyn_addr->id, router->dynamic_counter);
+	memcpy(dyn_addr->id, router->dynamic_counter, router->dynamic_len);
 	
 	//Increment counter
 	for (i = 0; i < router->dynamic_len; i++)
@@ -85,7 +87,7 @@ static void mtc_router_add_dynamic_dest
 
 static void mtc_router_remove_dynamic(MtcRouter *router, MtcDest *dest)
 {
-	mtc_afl_remove(dest->parent.key);
+	mtc_afl_remove(&(router->dests), dest->parent.key);
 }
 
 static void mtc_router_free_dynamic(MtcRouter *router)
@@ -103,7 +105,7 @@ static void mtc_router_init_static(MtcRouter *router)
 	int i;
 	
 	router->static_dests_len = 4;
-	router->static_dests = (MtcDest *) mtc_alloc
+	router->static_dests = (MtcDest **) mtc_alloc
 		(sizeof(void *) * router->static_dests_len);
 		
 	for (i = 0; i < router->static_dests_len; i++)
@@ -124,7 +126,7 @@ static void mtc_router_add_static_dest
 		if (new_len > mtc_static_id_max)
 			new_len = mtc_static_id_max;
 		
-		router->static_dests = (MtcDest *) mtc_realloc
+		router->static_dests = (MtcDest **) mtc_realloc
 			(router->static_dests, sizeof(void *) * new_len);
 		
 		for (i = router->static_dests_len; i < new_len; i++)
@@ -171,7 +173,7 @@ MtcRouter *mtc_router_create
 	router->refcount = 1;
 	router->vtable = vtable;
 	router->mgr = NULL;
-	mtc_router_init_dynamic_counter(router);
+	mtc_router_init_dynamic(router);
 	mtc_router_init_static(router);
 	
 	return router;
@@ -212,7 +214,7 @@ void mtc_router_set_event_mgr(MtcRouter *router, MtcEventMgr *mgr)
 
 void mtc_router_sync_io_step(MtcRouter *router, MtcPeer *peer)
 {
-	(* router->sync_io_step)(router, peer);
+	(* router->vtable->sync_io_step)(router, peer);
 }
 
 void mtc_router_deliver(MtcRouter *router, 
@@ -259,9 +261,9 @@ void mtc_router_deliver(MtcRouter *router,
 		if (ret_addr_len)
 		{
 			MtcMsg *error_payload = mtc_msg_with_member_ptr_only
-				(MTC_MEMBER_PTR_ERROR | MTC_ERROR_INVALID_DEST);
+				(MTC_MEMBER_PTR_ERROR | MTC_ERROR_INVALID_ARGUMENT);
 			
-			mtc_router_sendto(router, 
+			mtc_peer_sendto(src, 
 				ret_addr_data, ret_addr_len, NULL, error_payload);
 			
 			mtc_msg_unref(error_payload);
@@ -273,6 +275,12 @@ void mtc_router_deliver(MtcRouter *router,
 	//Deliver
 	(* dest->vtable->msg)
 		(dest, src, ret_addr_data, ret_addr_len, payload);
+}
+
+
+MtcPeer *mtc_router_get_self(MtcRouter *router)
+{
+	return (* router->vtable->get_self)(router);
 }
 
 //Peer
@@ -313,7 +321,7 @@ void mtc_peer_unref(MtcPeer *peer)
 void mtc_peer_add_reset_notify
 	(MtcPeer *peer, MtcPeerResetNotify *notify)
 {
-	MtcRing *el = (MtcRing *) notify, r = &(peer->reset_notifys);
+	MtcRing *el = (MtcRing *) notify, *r = &(peer->reset_notifys);
 	
 	el->next = r;
 	el->prev = r->prev;
@@ -330,7 +338,7 @@ void mtc_peer_reset_notify_remove(MtcPeerResetNotify *notify)
 
 void mtc_peer_reset(MtcPeer *peer)
 {
-	MtcRing *el, r = &(peer->reset_notifys), r2_mem;
+	MtcRing *el, *r = &(peer->reset_notifys), r2_mem;
 	MtcRing *r2 = &r2_mem;
 	MtcPeerResetNotify *notify;
 	
@@ -355,12 +363,18 @@ void mtc_peer_sendto(MtcPeer *peer,
 		void *addr_data, size_t addr_len,
 		MtcDest *reply_dest, MtcMsg *payload)
 {
-	(* peer->router->peer_sendto)
+	if (! addr_len)
+		mtc_error("Attempted to send to a null address");
+	
+	(* peer->router->vtable->peer_sendto)
 		(peer, addr_data, addr_len, reply_dest, payload);
 }
 
 
 //Addresses
+
+#define mtc_addr_data_unc(addr) ((unsigned char *) \
+	(MTC_PTR_ADD((addr), mtc_offset_align(sizeof(MtcAddr)))) )
 
 void mtc_addr_ref(MtcAddr *addr)
 {
@@ -373,23 +387,34 @@ void mtc_addr_unref(MtcAddr *addr)
 	
 	if (addr->refcount <= 0)
 	{
-		if (addr->peer)
-			mtc_peer_unref(addr->peer);
+		mtc_peer_unref(addr->peer);
 		free(addr);
 	}
+}
+
+MtcAddr *mtc_addr_new_null(MtcPeer *peer)
+{
+	MtcAddr *addr;
+	
+	addr = (MtcAddr *) malloc(sizeof(MtcAddr));
+	addr->refcount = 1;
+	addr->peer = peer;
+	addr->len = 0;
+	mtc_peer_ref(peer);
+		
+	return addr;
 }
 
 MtcAddr *mtc_addr_new_static(MtcPeer *peer, int static_id)
 {
 	MtcAddr *addr;
 	
-	addr = (MtcAddr *) malloc(sizeof(MtcAddr) + 1);
+	addr = (MtcAddr *) malloc(mtc_offset_align(sizeof(MtcAddr)) + 1);
 	addr->refcount = 1;
 	addr->peer = peer;
 	addr->len = 1;
-	addr->data[0] = static_id;
-	if (peer)
-		mtc_peer_ref(peer);
+	mtc_addr_data_unc(addr)[0] = static_id;
+	mtc_peer_ref(peer);
 		
 	return addr;
 }
@@ -399,13 +424,13 @@ MtcAddr *mtc_addr_new_from_raw
 {
 	MtcAddr *addr;
 	
-	addr = (MtcAddr *) malloc(sizeof(MtcAddr) + addr_len);
+	addr = (MtcAddr *) malloc(mtc_offset_align(sizeof(MtcAddr)) + addr_len);
 	addr->refcount = 1;
 	addr->peer = peer;
 	addr->len = addr_len;
-	memcpy(addr->data, addr_data, addr_len);
-	if (peer)
-		mtc_peer_ref(peer);
+	if (addr_len)
+		memcpy(mtc_addr_data_unc(addr), addr_data, addr_len);
+	mtc_peer_ref(peer);
 		
 	return addr;
 }
@@ -414,13 +439,13 @@ MtcAddr *mtc_addr_copy(MtcAddr *src_addr)
 {
 	MtcAddr *addr;
 	
-	addr = (MtcAddr *) malloc(sizeof(MtcAddr) + src_addr->len);
+	addr = (MtcAddr *) malloc(mtc_offset_align(sizeof(MtcAddr)) + src_addr->len);
 	addr->refcount = 1;
 	addr->peer = src_addr->peer;
 	addr->len = src_addr->len;
-	memcpy(addr->data, src_addr->data, src_addr->len);
-	if (addr->peer)
-		mtc_peer_ref(addr->peer);
+	if (src_addr->len)
+		memcpy(mtc_addr_data_unc(addr), mtc_addr_data_unc(src_addr), src_addr->len);
+	mtc_peer_ref(addr->peer);
 		
 	return addr;
 }
@@ -434,7 +459,7 @@ int mtc_addr_equal(MtcAddr *addr1, MtcAddr *addr2)
 	
 	for (i = 0; i < addr1->len; i++)
 	{
-		if (addr1->data[i] != addr2->data[i])
+		if (mtc_addr_data_unc(addr1)[i] != mtc_addr_data_unc(addr2)[i])
 			return 0;
 	}
 	
@@ -451,7 +476,7 @@ int mtc_addr_equal_raw
 	
 	for (i = 0; i < addr2_len; i++)
 	{
-		if (addr1->data[i] != ((char *) addr2_data)[i])
+		if (mtc_addr_data_unc(addr1)[i] != ((char *) addr2_data)[i])
 			return 0;
 	}
 	
@@ -466,7 +491,7 @@ static MtcDest *mtc_dest_create
 {
 	MtcDest *dest;
 	void *addr_data;
-	size_t addr_len
+	size_t addr_len;
 	
 	if (static_id < 0)
 	{
@@ -523,6 +548,8 @@ void mtc_dest_remove(MtcDest *dest)
 		//Dynamic
 		mtc_router_remove_dynamic(dest->router, dest);
 	}
+	
+	(* dest->vtable->removed) (dest);
 }
 
 void mtc_dest_ref(MtcDest *dest)
@@ -548,39 +575,120 @@ void mtc_dest_unref(MtcDest *dest)
 MtcAddr *mtc_dest_copy_addr(MtcDest *dest)
 {
 	return mtc_addr_new_from_raw
-		(NULL, dest->addr_data, dest->addr_len);
+		(mtc_router_get_self(dest->router), 
+		dest->addr_data, dest->addr_len);
 }
 
-//Implementer API and binding
-
-
 //Function call
-//TODO: Implement and delete irrelevant
 
-typedef struct _MtcFCHandle MtcFCHandle;
-
-typedef void (*MtcFCFn) 
-	(MtcFCHandle *handle, MtcStatus status, void *data);
-
-struct _MtcFCHandle
+static void mtc_fc_handle_dispose(MtcFCHandle *handle)
 {
-	MtcDest parent;
-	
-	MtcPeer *peer;
-	MtcPeerResetNotify notify;
-	void *out_args;
-	MtcStatus status;
-	MtcFCBinary *binary;
-	
-	MtcFCFn cb;
-	void *cb_data;
-};
+	mtc_dest_remove((MtcDest *) handle);
+	mtc_peer_reset_notify_remove(&(handle->notify));
+}
 
+static void mtc_fc_handle_peer_reset(MtcPeerResetNotify *notify)
+{
+	MtcFCHandle *handle = (MtcFCHandle *) 
+		MTC_PTR_ADD(notify, - offsetof(MtcFCHandle, notify));
+	
+	//Remove it and set status
+	mtc_fc_handle_dispose(handle);
+	handle->status = MTC_ERROR_PEER_RESET;
+	
+	//Callback
+	if (handle->cb)
+	{
+		(* handle->cb) (handle, handle->cb_data);
+	}
+}
 
-//TODO: implement
+static void mtc_fc_handle_msg(MtcDest *dest, 
+		MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
+		MtcMsg *payload)
+{
+	MtcFCHandle *handle = (MtcFCHandle *) dest;
+	uint32_t member_ptr;
+	
+	//Check the source first
+	if (src != handle->peer)
+		goto unintended;
+	
+	member_ptr = mtc_msg_read_member_ptr(payload);
+	
+	if (member_ptr == MTC_MEMBER_PTR_FN_RETURN)
+	{
+		//Deserialize out arguments
+		if (handle->out_args)
+		{
+			mtc_msg_ref(payload);
+			
+			if ((* handle->binary->out_args_deser)
+				(payload, handle->out_args) < 0)
+			{
+				goto unintended;
+			}
+		}
+		
+		handle->status = MTC_FC_SUCCESS;
+		(* handle->cb)(handle, handle->cb_data);
+		
+		goto end;
+	}
+	else if (MTC_MEMBER_PTR_IS_ERROR(member_ptr))
+	{
+		handle->status = MTC_MEMBER_PTR_GET_IDX(member_ptr);
+		(* handle->cb)(handle, handle->cb_data);
+		
+		goto end;
+	}
+	else
+	{
+		goto unintended;
+	}
+	
+unintended:
+	if (ret_addr_data)
+	{
+		MtcMsg *error_msg = mtc_msg_with_member_ptr_only
+			(MTC_MEMBER_PTR_ERROR | MTC_ERROR_INVALID_ARGUMENT);
+		
+		mtc_peer_sendto
+			(src, ret_addr_data, ret_addr_len, NULL, error_msg);
+		
+		mtc_msg_unref(error_msg);
+	}
+	
+end: 
+	mtc_msg_unref(payload);
+}
+
+static void mtc_fc_handle_removed(MtcDest *dest)
+{
+	MtcFCHandle *handle = (MtcFCHandle *) dest;
+	
+	mtc_fc_handle_dispose(handle);
+}
+
+static void mtc_fc_handle_destroy(MtcDest *dest)
+{
+	MtcFCHandle *handle = (MtcFCHandle *) dest;
+	
+	mtc_fc_handle_dispose(handle);
+	
+	mtc_peer_unref(handle->peer);
+	
+	if (handle->status == MTC_FC_SUCCESS
+		&& handle->out_args)
+	{
+		(* handle->binary->out_args_free)(handle->out_args);
+	}
+}
+
 MtcDestVTable mtc_fc_handle_vtable = 
 {
 	mtc_fc_handle_msg,
+	mtc_fc_handle_removed,
 	mtc_fc_handle_destroy
 };
 
@@ -592,23 +700,25 @@ MtcFCHandle *mtc_fc_start
 	size_t out_args_offset, size;
 	
 	//Calculate size
-	size = sizeof(MtcFCHandle);
 	if (binary->out_args_c_size)
 	{
-		mtc_align_offset(size);
-		out_args_offset = size;
-		size += binary->out_args_c_size;
+		out_args_offset = mtc_offset_align(sizeof(MtcFCHandle));
+		size = out_args_offset + binary->out_args_c_size;
+	}
+	else
+	{
+		out_args_offset = 0;
+		size = sizeof(MtcFCHandle);
 	}
 	
 	//Create and init handle
 	handle = (MtcFCHandle *) mtc_dest_create
-		(router, -1, size, mtc_fc_handle_vtable);
+		(addr->peer->router, -1, size, &mtc_fc_handle_vtable);
 	
 	handle->peer = addr->peer;
 	mtc_peer_ref(addr->peer);
-	//TODO: implement
 	handle->notify.cb = mtc_fc_handle_peer_reset;
-	if (binary->out_args_c_size)
+	if (out_args_offset)
 		handle->out_args = MTC_PTR_ADD(handle, out_args_offset);
 	else
 		handle->out_args = NULL;
@@ -620,7 +730,7 @@ MtcFCHandle *mtc_fc_start
 		
 	//Send mail
 	payload = (* binary->in_args_ser)(args);
-	mtc_peer_sendto(addr->peer, addr->data, addr->len, 
+	mtc_peer_sendto(addr->peer, mtc_addr_data(addr), addr->len, 
 		(MtcDest *) handle, payload);
 	mtc_msg_unref(payload);
 	
@@ -630,18 +740,142 @@ MtcFCHandle *mtc_fc_start
 void mtc_fc_start_unhandled
 	(MtcAddr *addr, MtcFCBinary *binary, void *args)
 {
+	MtcMsg *payload;
+	
 	//Send mail
 	payload = (* binary->in_args_ser)(args);
-	mtc_peer_sendto(addr->peer, addr->data, addr->len, 
+	mtc_peer_sendto(addr->peer, mtc_addr_data(addr), addr->len, 
 		NULL, payload);
 	mtc_msg_unref(payload);
 }
 
 MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle)
 {
-	//
+	MtcStatus status;
+	
+	//Block
+	while ((status = handle->status) == MTC_ERROR_TEMP)
+	{
+		mtc_router_sync_io_step
+			(mtc_dest_get_router(handle), handle->peer);
+	}
+	
+	return status;
 }
 
-#define mtc_fc_get_out_args(handle, type) \
-	((type *) (((MtcFCHandle *) (handle))->out_args))
+//Object handle
+
+static void mtc_object_handle_msg(MtcDest *dest, 
+		MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
+		MtcMsg *payload)
+{
+	MtcObjectHandle *handle = (MtcObjectHandle *) dest;
+	uint32_t member_ptr;
+	
+	member_ptr = mtc_msg_read_member_ptr(payload);
+	
+	if (member_ptr == MTC_MEMBER_PTR_FN)
+	{
+		int fn_id = MTC_MEMBER_PTR_GET_IDX(member_ptr);
+		MtcFCBinary	*fc_binary;
+		MtcAddr *ret_addr;
+		
+		if (fn_id >= handle->binary->n_fns)
+			goto unintended;
+		
+		ret_addr = mtc_addr_new_from_raw
+			(src, ret_addr_data, ret_addr_len);
+		fc_binary = handle->binary->fns + fn_id;
+		
+		//Deserialize in arguments
+		if (fc_binary->in_args_c_size)
+		{
+			void *args = mtc_alloc(fc_binary->in_args_c_size);
+			
+			mtc_msg_ref(payload);
+			if ((* fc_binary->in_args_deser)
+				(payload, args) < 0)
+			{
+				mtc_free(args);
+				mtc_addr_unref(ret_addr);
+				goto unintended;
+			}
+			
+			(* handle->impl[fn_id])(handle, ret_addr, args);
+			
+			(* fc_binary->in_args_free)(args);
+			mtc_free(args);
+		}
+		else
+		{
+			(* handle->impl[fn_id])(handle, ret_addr, NULL);
+		}
+		
+		mtc_addr_unref(ret_addr);
+		
+		goto end;
+	}
+	else
+	{
+		goto unintended;
+	}
+	
+unintended:
+	if (ret_addr_data)
+	{
+		MtcMsg *error_msg = mtc_msg_with_member_ptr_only
+			(MTC_MEMBER_PTR_ERROR | MTC_ERROR_INVALID_ARGUMENT);
+		
+		mtc_peer_sendto
+			(src, ret_addr_data, ret_addr_len, NULL, error_msg);
+		
+		mtc_msg_unref(error_msg);
+	}
+	
+end: 
+	mtc_msg_unref(payload);
+}
+
+static void mtc_object_handle_removed(MtcDest *dest)
+{
+	
+}
+
+static void mtc_object_handle_destroy(MtcDest *dest)
+{
+	
+}
+
+MtcDestVTable mtc_object_handle_vtable =
+{
+	mtc_object_handle_msg,
+	mtc_object_handle_removed,
+	mtc_object_handle_destroy
+};
+
+MtcObjectHandle *mtc_object_handle_new
+	(MtcRouter *router, MtcClassBinary *binary, int static_id,
+	MtcFnImpl *impl, void *impl_data)
+{
+	MtcObjectHandle *handle = (MtcObjectHandle *) mtc_dest_create
+		(router, static_id, sizeof(MtcObjectHandle), 
+		&mtc_object_handle_vtable);
+	
+	handle->binary = binary;
+	handle->impl = impl;
+	handle->impl_data = impl_data;
+	
+	return handle;
+}
+
+void mtc_fc_return(MtcAddr *addr, MtcFCBinary *binary, void *out_args)
+{
+	MtcMsg *payload;
+	
+	//Send mail
+	payload = (* binary->out_args_ser)(out_args);
+	mtc_peer_sendto(addr->peer, mtc_addr_data(addr), addr->len, 
+		NULL, payload);
+	mtc_msg_unref(payload);
+}
 

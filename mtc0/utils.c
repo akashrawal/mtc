@@ -54,8 +54,7 @@ void *mtc_alloc2(size_t size1, size_t size2, void **mem2_return)
 	
 	//mem2 must be aligned to size of two pointers.
 	//Adjust size1 for that.
-	size1 += (mtc_alloc_boundary - 1);
-	size1 -= size1 % mtc_alloc_boundary;
+	size1 = mtc_offset_align(size1);
 	
 	//Now allocate
 	mem1 = malloc(size1 + size2);
@@ -74,8 +73,7 @@ void *mtc_tryalloc2(size_t size1, size_t size2, void **mem2_return)
 	
 	//mem2 must be aligned to size of two pointers.
 	//Adjust size1 for that.
-	size1 += (mtc_alloc_boundary - 1);
-	size1 -= size1 % mtc_alloc_boundary;
+	size1 = mtc_offset_align(size1);
 	
 	//Now allocate
 	mem1 = malloc(size1 + size2);

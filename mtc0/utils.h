@@ -128,19 +128,10 @@ void *mtc_tryalloc2(size_t size1, size_t size2, void **mem2_return);
 
 #define mtc_alloc_boundary (2 * sizeof(void *))
 
-#define mtc_align_offset(offset) \
-	do { \
-		(offset) += (mtc_alloc_boundary - 1); \
-		(offset) -= (offset) % mtc_alloc_boundary; \
-	} while (0)
+#define mtc_offset_align(offset) \
+	(((offset) + mtc_alloc_boundary - 1) \
+	- (((offset) + mtc_alloc_boundary - 1) % mtc_alloc_boundary))
 
-#define mtc_align_ptr(ptr, offset) \
-	do { \
-		int aligned = (offset); \
-		aligned += (mtc_alloc_boundary - 1); \
-		aligned -= aligned % mtc_alloc_boundary; \
-		ptr = MTC_PTR_ADD(ptr, aligned); \
-	} while (0)
 
 //Like strdup() but aborts on allocation failures
 char *mtc_strdup(const char *str);

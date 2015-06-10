@@ -33,10 +33,19 @@ do {\
 
 //User API
 
-//TODO: Implement functions
 //TODO: Docs
-//Router
+
+//Objects
+
 typedef struct _MtcRouter MtcRouter;
+
+typedef struct _MtcPeer MtcPeer;
+
+typedef struct _MtcAddr MtcAddr;
+
+typedef struct _MtcDest MtcDest;
+
+//Router
 
 void mtc_router_ref(MtcRouter *router);
 
@@ -44,12 +53,12 @@ void mtc_router_unref(MtcRouter *router);
 
 void mtc_router_set_event_mgr(MtcRouter *router, MtcEventMgr *mgr);
 
-//MtcEventMgr *mtc_router_get_event_mgr(MtcRouter *router);
 #define mtc_router_get_event_mgr(router) \
 	((MtcEventMgr *) (((MtcRouter *) (router))->mgr))
 
+MtcPeer *mtc_router_get_self(MtcRouter *self);
+
 //Peer
-typedef struct _MtcPeer MtcPeer;
 
 void mtc_peer_ref(MtcPeer *peer);
 
@@ -72,18 +81,25 @@ void mtc_peer_add_reset_notify
 void mtc_peer_reset_notify_remove(MtcPeerResetNotify *notify);
 
 //Addresses
-typedef struct 
+
+struct _MtcAddr
 {
 	int refcount;
 //public readonly:
 	MtcPeer *peer;
 	size_t len;
-	unsigned char data[];
-} MtcAddr;
+};
+	
+#define mtc_addr_data(addr) ((unsigned char *) \
+	(((MtcAddr *) (addr))->len \
+	? (MTC_PTR_ADD((addr), mtc_offset_align(sizeof(MtcAddr)))) \
+	: NULL) )
 
 void mtc_addr_ref(MtcAddr *addr);
 
 void mtc_addr_unref(MtcAddr *addr);
+
+MtcAddr *mtc_addr_new_null(MtcPeer *peer);
 
 MtcAddr *mtc_addr_new_static(MtcPeer *peer, int static_id);
 
@@ -97,22 +113,25 @@ int mtc_addr_equal(MtcAddr *addr1, MtcAddr *addr2);
 int mtc_addr_equal_raw
 	(MtcAddr *addr1, void *addr2_data, size_t addr2_len);
 
+#define mtc_addr_is_null(addr) \
+	((int) (((MtcAddr *) (addr))->len == 0))
+
 #define mtc_static_id_max (255)
 
 #define mtc_addr_is_static(addr) \
 	((int) (((MtcAddr *) (addr))->len == 1))
 
 #define mtc_addr_get_static_id(addr) \
-	((int) (((MtcAddr *) (addr))->data[0]))
+	((int) (mtc_addr_data(addr)[0]))
 
 //Destinations
-typedef struct _MtcDest MtcDest;
 
 typedef struct 
 {
 	void (*msg) (MtcDest *dest, 
 		MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
 		MtcMsg *payload);
+	void (*removed) (MtcDest *dest);
 	void (*destroy) (MtcDest *dest);
 } MtcDestVTable;
 
@@ -142,10 +161,10 @@ void mtc_dest_remove(MtcDest *dest);
 
 MtcAddr *mtc_dest_copy_addr(MtcDest *dest);
 
-#define mtc_dest_get_addr(dest) 
+#define mtc_dest_get_addr(dest) \
 	((void *) (((MtcDest *) (dest))->addr_data))
 
-#define mtc_dest_get_addr_len(dest) 
+#define mtc_dest_get_addr_len(dest) \
 	((size_t) (((MtcDest *) (dest))->addr_len))
 
 #define mtc_dest_is_static(dest) \
@@ -158,6 +177,7 @@ MtcAddr *mtc_dest_copy_addr(MtcDest *dest);
 
 typedef struct
 {
+	MtcPeer *(*get_self) (MtcRouter *router);
 	void (*set_event_mgr) (MtcRouter *router, MtcEventMgr *mgr);
 	void (*peer_sendto) (MtcPeer *peer, 
 		void *addr_data, size_t addr_len,
@@ -175,8 +195,15 @@ struct _MtcRouter
 	MtcAfl dests;
 	char *dynamic_counter;
 	int dynamic_len;
-	MtcDest *static_dests;
+	MtcDest **static_dests;
 	int static_dests_len;
+};
+
+struct _MtcPeer
+{
+	int refcount;
+	MtcRouter *router;
+	MtcRing reset_notifys;
 };
 
 MtcRouter *mtc_router_create
@@ -188,13 +215,6 @@ void mtc_router_deliver(MtcRouter *router,
 	void *dest_addr_data, size_t dest_addr_len,
 	MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
 	MtcMsg *payload);
-	
-struct _MtcPeer
-{
-	int refcount;
-	MtcRouter *router;
-	MtcRing reset_notifys;
-};
 
 void mtc_peer_init(MtcPeer *peer, MtcRouter *router);
 
@@ -211,7 +231,7 @@ void mtc_peer_sendto(MtcPeer *peer,
 typedef struct _MtcFCHandle MtcFCHandle;
 
 typedef void (*MtcFCFn) 
-	(MtcFCHandle *handle, MtcStatus status, void *data);
+	(MtcFCHandle *handle, void *data);
 
 struct _MtcFCHandle
 {
@@ -241,42 +261,12 @@ MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle);
 #define mtc_fc_get_out_args(handle, type) \
 	((type *) (((MtcFCHandle *) (handle))->out_args))
 
-//Event management
-
-typedef struct _MtcEventHandle MtcEventHandle;
-
-typedef void (*MtcEventFn) 
-	(MtcEventHandle *handle, MtcStatus status, void *data);
-
-struct _MtcEventHandle
-{
-	MtcDest parent;
-	
-	MtcAddr *addr;
-	MtcPeerResetNotify notify;
-	void *args;
-	MtcStatus status;
-	MtcEventBinary *binary;
-	
-	MtcEventFn cb;
-	void *cb_data;
-};
-
-MtcEventHandle *mtc_event_connect
-	(MtcAddr *addr, MtcFCBinary *binary, void *args);
-
-MtcStatus mtc_event_fetch_sync(MtcEventHandle *handle);
-
-#define mtc_event_get_args(handle, type) \
-	((type *) (((MtcEventHandle *) (handle))->args))
-	
 //Object handle
 
 typedef struct _MtcObjectHandle MtcObjectHandle;
 
 typedef void (*MtcFnImpl) 
-	(MtcObjectHandle *handle, MtcAddr *return_addr, void *args, 
-		void *impl_data);
+	(MtcObjectHandle *handle, MtcAddr *ret_addr, void *args);
 
 struct _MtcObjectHandle
 {
@@ -285,27 +275,14 @@ struct _MtcObjectHandle
 	MtcClassBinary *binary;
 	MtcFnImpl *impl;
 	void *impl_data;
-	MtcRing event_rings[];
 };
-
-typedef struct _MtcEventConnection MtcEventConnection;
-
-struct _MtcEventConnection
-{
-	MtcDest parent;
-	
-	MtcRing event_ring;
-	MtcPeer *peer;
-	MtcPeerResetNotify notify;
-	size_t addr_len;
-	char addr[];
-}
 
 MtcObjectHandle *mtc_object_handle_new
 	(MtcRouter *router, MtcClassBinary *binary, int static_id,
 	MtcFnImpl *impl, void *impl_data);
 
-void mtc_object_handle_raise_event
-	(MtcObjectHandle *handle, int id, void *args);
+#define mtc_object_handle_get_impl_data(handle) \
+	((void *) (((MtcObjectHandle *) (handle))->impl_data))
 
+void mtc_fc_return(MtcAddr *addr, MtcFCBinary *binary, void *out_args);
 

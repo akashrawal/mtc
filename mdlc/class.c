@@ -31,9 +31,10 @@ void mtc_write_one_way_serializers
 //sn: serializer name
 //dsn: deserializer name
 {
-	//TODO: Fix for serializations wit no arguments
-	//if (list)
-	//{
+	if (list)
+	{
+		//With arguments (structure, serializer deserializer)
+		
 		MtcSymbolVar *iter;
 		
 		//Write the structure definition
@@ -96,14 +97,6 @@ void mtc_write_one_way_serializers
 		
 		//Write functon arguments
 		mtc_var_list_code_for_write(list, "args->", c_file);
-		
-		//TODO: delete
-		/*
-		//Expect message in reply to a function call?
-		if (msg_in_reply)
-			fprintf(c_file, 
-				"\n    res->da_flags |= MTC_DA_FLAG_MSG_IN_REPLY;\n");
-				*/
 		
 		//Write function return value
 		fprintf(c_file, "\n"
@@ -168,59 +161,35 @@ void mtc_write_one_way_serializers
 			"    mtc_msg_unref(msg);\n"
 			"    return -1;\n"
 			"}\n\n");
-	//}
-	//TODO: Delete
-	/*
-	else if (fn_idx >= 0)
+	}
+	else
 	{
+		//Without arguments (only serializer)
+		
 		//Serialiation function:
 		
-		//The beginning part
 		fprintf(h_file, 
-			"MtcMsg *%s__%s__%s();\n\n",
+			"MtcMsg *%s__%s__%s(/*unused*/ void *args);\n\n",
 			klass->parent.name, member, sn);
 		
 		fprintf(c_file, 
-			"MtcMsg *%s__%s__%s()\n{\n",
-			klass->parent.name, member, sn);
-		
-		//Declarations
-		fprintf(c_file, 
-			"    uint32_t member_ptr = MTC_MEMBER_PTR_FN | %d;\n"
-			"    MtcMsg *res;\n"
-			"    MtcDLen size = {4, 0};\n"
-			"    MtcSegment seg_v;\n"
-			"    MtcSegment *seg = &seg_v;\n"
-			"    MtcDStream dstream_v;\n"
-			"    MtcDStream *dstream = &dstream_v;\n\n", 
-			fn_idx);
-		
-		//Count size of the message
-		mtc_var_list_code_for_count(list, "args->", c_file);
-		
-		//Create a message
-		fprintf(c_file, 
-			"    res = mtc_msg_new"
-			"(size.n_bytes, size.n_blocks);\n"
-			"    mtc_msg_iter(res, dstream);\n"
-			"    mtc_dstream_get_segment(dstream, 4, 0, seg);\n\n");
-		
-		//Write function number as member pointer
-		if (fn_idx >= 0)
-			fprintf(c_file, 
-				"    mtc_segment_write_uint32(seg, member_ptr);\n\n");
-		
-		//Expect message in reply to a function call?
-		if (msg_in_reply)
-			fprintf(c_file, 
-				"\n    res->da_flags |= MTC_DA_FLAG_MSG_IN_REPLY;\n");
-		
-		//Write function return value
-		fprintf(c_file, "\n"
-			"    return res;\n"
-			"}\n\n");
+			"MtcMsg *%s__%s__%s(void *args)\n"
+			"{\n"
+			"    MtcMsg *msg;\n"
+			"    MtcMBlock byte_stream;\n"
+			"    uint32_t member_ptr = %s | %d;\n"
+			"\n"
+			"    msg = mtc_msg_new(4, 0);"
+			"\n"
+			"    byte_stream = mtc_msg_get_blocks(msg)[0];\n"
+			"\n"
+			"    mtc_uint32_copy_to_le(byte_stream.data, &member_ptr);\n"
+			"\n"
+			"    return msg;\n"
+			"}\n\n",
+			klass->parent.name, member, sn,
+			member_ptr_type, idx);
 	}
-	*/
 }
 
 //Now generate code for the class
@@ -229,11 +198,10 @@ void mtc_class_gen_code
 		(MtcSymbolClass *klass, FILE *h_file, FILE *c_file)
 {
 	MtcSymbolFunc *fn;
-	MtcSymbolEvent *evt;
 	MtcSymbolClass *parent;
-	int n_fns = 0, n_evts = 0, n_parent_fns = 0, n_parent_evts = 0, i;
+	int n_fns = 0, n_parent_fns = 0, i;
 	
-	//Counting functions and events
+	//Counting
 	for (parent = klass->parent_class; parent; 
 		parent = parent->parent_class)
 	{
@@ -241,12 +209,6 @@ void mtc_class_gen_code
 			fn = (MtcSymbolFunc *) fn->parent.next)
 		{
 			n_parent_fns++;
-		}
-		
-		for (evt = parent->events; evt; 
-			evt = (MtcSymbolEvent *) evt->parent.next)
-		{
-			n_parent_evts++;
 		}
 	}
 	
@@ -256,26 +218,11 @@ void mtc_class_gen_code
 		n_fns++;
 	}
 	
-	for (evt = klass->events; evt; 
-		evt = (MtcSymbolEvent *) evt->parent.next)
-	{
-		n_evts++;
-	}
-	
 	//Mark the beginnings
 	fprintf(h_file, "//class %s\n\n", klass->parent.name);
 	fprintf(c_file, "//class %s\n\n", klass->parent.name);
 	
-	//Print the class info
-	fprintf(h_file, 
-		"extern MtcClassInfo %s__info;\n\n", klass->parent.name);
-	fprintf(c_file,
-		"MtcClassInfo %s__info = {%d, %d};\n\n",
-		klass->parent.name,
-		n_parent_fns + n_fns, 
-		n_parent_evts + n_evts);
-	
-	//For each function
+	//Write functions
 	for (fn = klass->funcs, i = n_parent_fns; fn; 
 		fn = (MtcSymbolFunc *) fn->parent.next, i++)
 	{
@@ -289,25 +236,6 @@ void mtc_class_gen_code
 		fprintf(h_file, "#define %s__%s__IDX %d\n\n",
 			klass->parent.name, fn->parent.name, i);
 		
-		//TODO: Delete
-		/*
-		//Write code for input arguments
-		mtc_write_one_way_serializers
-			(klass, fn->in_args, fn->in_args_base_size, 
-			fn->parent.name, "in_args", "msg", "read", i, 
-			fn->out_args ? 1 : 0,
-			h_file, c_file);
-		
-		//Write code for output arguments, if they are there
-		if (fn->out_args)
-		{
-			mtc_write_one_way_serializers
-				(klass, fn->out_args, fn->out_args_base_size, 
-				fn->parent.name, "out_args", "reply", "finish", -1, 
-				0,
-				h_file, c_file);
-		}
-		*/
 		
 		//Write code for input arguments
 		mtc_write_one_way_serializers
@@ -324,31 +252,103 @@ void mtc_class_gen_code
 			h_file, c_file);
 	}
 	
-	//TODO: Event is for eventually
-	/*
-	for (evt = klass->events, i = n_parent_evts; evt; 
-		evt = (MtcSymbolEvent *) evt->parent.next, i++)
+	
+	//Print binaries
+	fprintf(h_file, "//%s: Binaries\n\n", 
+		klass->parent.name);
+	fprintf(c_file, "//%s: Binaries\n\n", 
+		klass->parent.name);
+	
+	fprintf(h_file, 
+		"#define mtc_fc_list__%s \\\n", klass->parent.name);
+	
+	if (klass->parent_class)
 	{
-		//Comment
-		fprintf(h_file, "//%s::%s\n\n", 
-			klass->parent.name, evt->parent.name);
-		fprintf(c_file, "//%s::%s\n\n", 
-			klass->parent.name, evt->parent.name);
-		
-		//Write its index
-		fprintf(h_file, "#define %s__%s__TAG %d\n\n",
-			klass->parent.name, evt->parent.name, 
-			MTC_EVENT_TAG_CREATE(i, (evt->args ? 1 : 0)));
-		
-		//Write code for event arguments if they are there
-		if (evt->args)
-		{
-			mtc_write_one_way_serializers
-				(klass, evt->args, evt->base_size, 
-				evt->parent.name, "args", "msg", "read", -1, 
-				0,
-				h_file, c_file);
-		}
+		fprintf(h_file,
+			"    mtc_fc_list__%s,\\\n", 
+			klass->parent_class->parent.name);
 	}
-	*/
+	
+	for (fn = klass->funcs, i = n_parent_fns; fn; 
+		fn = (MtcSymbolFunc *) fn->parent.next, i++)
+	{
+		fprintf(h_file, 
+			"    {\\\n"
+			"        %s__%s__IDX,\\\n", 
+			klass->parent.name, fn->parent.name);
+		
+		if (fn->in_args)
+		{
+			fprintf(h_file, 
+				"        sizeof(%s__%s__in_args),\\\n"
+				"        (MtcSerFn) %s__%s__msg,\\\n"
+				"        (MtcDeserFn) %s__%s__read,\\\n"
+				"        (MtcFreeFn) %s__%s__in_args_free,\\\n",
+				klass->parent.name, fn->parent.name,
+				klass->parent.name, fn->parent.name,
+				klass->parent.name, fn->parent.name,
+				klass->parent.name, fn->parent.name);
+		}
+		else
+		{
+			fprintf(h_file, 
+				"        0,\\\n"
+				"        (MtcSerFn) %s__%s__msg,\\\n"
+				"        (MtcDeserFn) NULL,\\\n"
+				"        (MtcFreeFn) NULL,\\\n",
+				klass->parent.name, fn->parent.name);
+		}
+		
+		if (fn->out_args)
+		{
+			fprintf(h_file, 
+				"        sizeof(%s__%s__out_args),\\\n"
+				"        (MtcSerFn) %s__%s__reply,\\\n"
+				"        (MtcDeserFn) %s__%s__finish,\\\n"
+				"        (MtcFreeFn) %s__%s__out_args_free\\\n",
+				klass->parent.name, fn->parent.name,
+				klass->parent.name, fn->parent.name,
+				klass->parent.name, fn->parent.name,
+				klass->parent.name, fn->parent.name);
+		}
+		else
+		{
+			fprintf(h_file, 
+				"        0,\\\n"
+				"        (MtcSerFn) %s__%s__reply,\\\n"
+				"        (MtcDeserFn) NULL,\\\n"
+				"        (MtcFreeFn) NULL\\\n",
+				klass->parent.name, fn->parent.name);
+		}
+		
+		if (fn->parent.next)
+			fprintf(h_file, "    },\\\n");
+		else
+			fprintf(h_file, "    }\n\n");
+	}
+	
+	fprintf(h_file, 
+		"extern MtcFCBinary mtc__%s__fns[%d];\n\n",
+		klass->parent.name, n_parent_fns + n_fns);
+	
+	fprintf(c_file, 
+		"MtcFCBinary mtc__%s__fns[%d] = { mtc_fc_list__%s };\n\n",
+		klass->parent.name, n_parent_fns + n_fns, klass->parent.name);
+	
+	fprintf(h_file, 
+		"extern MtcClassBinary %s;\n\n", klass->parent.name);
+	fprintf(c_file,
+		"MtcClassBinary %s = {%d, mtc__%s__fns};\n\n",
+		klass->parent.name,
+		n_parent_fns + n_fns, 
+		klass->parent.name);
+	
+	for (fn = klass->funcs, i = n_parent_fns; fn; 
+		fn = (MtcSymbolFunc *) fn->parent.next, i++)
+	{
+		fprintf(h_file, 
+		"#define %s__%s (mtc__%s__fns + %d);\n\n",
+		klass->parent.name, fn->parent.name, 
+		klass->parent.name, i);
+	}
 }
