@@ -14,7 +14,6 @@ mtc_c =  \
 	types.c        \
 	serialize.c    \
 	message.c      \
-	io.c           \
 	event.c        \
 	link.c         \
 	hl_base.c      \
@@ -28,13 +27,11 @@ mtc_h =  \
 	types.h        \
 	serialize.h    \
 	message.h      \
-	io.h           \
 	event.h        \
 	link.h         \
 	hl_base.h      \
 	afl.h          \
 	router.h
-#	da.h   
      
 libmtc0_la_SOURCES = $(mtc_c) $(mtc_h)       
 	        

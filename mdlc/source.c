@@ -21,8 +21,90 @@
 #include <common.h>
 
 #include <stdarg.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
+
+//TODO: Refactor
+
+//Reader
+
+#ifndef EWOULDBLOCK
+#define MTC_IO_TEMP_ERROR(e) ((e == EAGAIN) || (e == EINTR))
+#else
+#if (EAGAIN == EWOULDBLOCK)
+#define MTC_IO_TEMP_ERROR(e) ((e == EAGAIN) || (e == EINTR))
+#else
+#define MTC_IO_TEMP_ERROR(e) ((e == EAGAIN) || (e == EWOULDBLOCK) || (e == EINTR))
+#endif
+#endif
+
+//Return status for IO operation
+typedef enum
+{	
+	//No error
+	MTC_IO_OK = 0,
+	//Temporary error
+	MTC_IO_TEMP = -1,
+	//End-of-file encountered while reading
+	MTC_IO_EOF = -2,
+	//Irrecoverable error
+	MTC_IO_SEVERE = -3
+} MtcIOStatus;
+
+//A simple reader
+typedef struct 
+{
+	void *mem;
+	size_t len;
+	int fd;
+} MtcReader;
+
+
+//Initializes the reader
+static void mtc_reader_init(MtcReader *self, void *mem, size_t len, int fd)
+{
+	self->mem = mem;
+	self->len = len;
+	self->fd  = fd;
+}
+
+//Reads some data. Returns no. of bytes remaining to be read, or one of 
+//MtcIOStatus in case of error.
+static MtcIOStatus mtc_reader_read(MtcReader *self)
+{
+	ssize_t bytes_read;
+	
+	//Precaution
+	if (! self->len)
+		return 0;
+	
+	//Read some data
+	bytes_read = read(self->fd, self->mem, self->len);
+	
+	//Error checking
+	if (bytes_read < 0)
+	{
+		if (MTC_IO_TEMP_ERROR(errno))
+			return MTC_IO_TEMP;
+		else
+			return MTC_IO_SEVERE;
+	}
+	else if (bytes_read == 0)
+		return MTC_IO_EOF;
+	else
+	{
+		//Successful read.
+		//Update and return status
+		self->mem = MTC_PTR_ADD(self->mem, bytes_read);
+		self->len -= bytes_read;
+		
+		if (self->len)
+			return MTC_IO_TEMP;
+		else
+			return MTC_IO_OK;
+	}
+}
 
 //Implementation for MtcSource
 

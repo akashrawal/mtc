@@ -235,41 +235,5 @@ void mtc_link_event_source_init
 
 void mtc_link_event_source_destroy(MtcLinkEventSource *source);
 
-/**Creates a new link that works with file descriptors.
- * \param in_fd The file descriptor to receive from.
- * \param out_fd The file descriptor to send to. Can be as
- *               same as in_fd.
- * \return A new link.
- */
-MtcLink *mtc_fd_link_new(int out_fd, int in_fd);
-
-/**Gets the file descriptor used for sending.
- * \param link The link
- * \return a file descriptor
- */
-int mtc_fd_link_get_out_fd(MtcLink *link);
-
-/**Gets the file descriptor used for receiving.
- * \param link The link
- * \return a file descriptor
- */
-int mtc_fd_link_get_in_fd(MtcLink *link);
-
-/**Gets whether the file descriptors will be closed when the link 
- * is destroyed.
- * \param link The link
- * \return 1 if the file descriptor should be closed on destruction, 
- *         0 otherwise.
- */
-int mtc_fd_link_get_close_fd(MtcLink *link);
-
-/**Sets whether the file descriptors will be closed when the link 
- * is destroyed.
- * \param link The link
- * \param val 1 if the file descriptor should be closed on destruction, 
- *            0 otherwise.
- */
-void mtc_fd_link_set_close_fd(MtcLink *link, int val);
-
 
 ///\}
