@@ -208,7 +208,8 @@ void mtc_router_set_event_mgr(MtcRouter *router, MtcEventMgr *mgr)
 	
 	if (router->mgr)
 		mtc_event_mgr_unref(router->mgr);
-	mtc_event_mgr_ref(mgr);
+	if (mgr)
+		mtc_event_mgr_ref(mgr);
 	router->mgr = mgr;
 }
 
@@ -589,8 +590,7 @@ static void mtc_fc_handle_dispose(MtcFCHandle *handle)
 
 static void mtc_fc_handle_peer_reset(MtcPeerResetNotify *notify)
 {
-	MtcFCHandle *handle = (MtcFCHandle *) 
-		MTC_PTR_ADD(notify, - offsetof(MtcFCHandle, notify));
+	MtcFCHandle *handle = mtc_encl_struct(notify, MtcFCHandle, notify);
 	
 	//Remove it and set status
 	mtc_fc_handle_dispose(handle);
@@ -620,9 +620,7 @@ static void mtc_fc_handle_msg(MtcDest *dest,
 	{
 		//Deserialize out arguments
 		if (handle->out_args)
-		{
-			mtc_msg_ref(payload);
-			
+		{	
 			if ((* handle->binary->out_args_deser)
 				(payload, handle->out_args) < 0)
 			{
@@ -633,14 +631,14 @@ static void mtc_fc_handle_msg(MtcDest *dest,
 		handle->status = MTC_FC_SUCCESS;
 		(* handle->cb)(handle, handle->cb_data);
 		
-		goto end;
+		return;
 	}
 	else if (MTC_MEMBER_PTR_IS_ERROR(member_ptr))
 	{
 		handle->status = MTC_MEMBER_PTR_GET_IDX(member_ptr);
 		(* handle->cb)(handle, handle->cb_data);
 		
-		goto end;
+		return;
 	}
 	else
 	{
@@ -658,9 +656,6 @@ unintended:
 		
 		mtc_msg_unref(error_msg);
 	}
-	
-end: 
-	mtc_msg_unref(payload);
 }
 
 static void mtc_fc_handle_removed(MtcDest *dest)
@@ -792,7 +787,6 @@ static void mtc_object_handle_msg(MtcDest *dest,
 		{
 			void *args = mtc_alloc(fc_binary->in_args_c_size);
 			
-			mtc_msg_ref(payload);
 			if ((* fc_binary->in_args_deser)
 				(payload, args) < 0)
 			{
@@ -813,7 +807,7 @@ static void mtc_object_handle_msg(MtcDest *dest,
 		
 		mtc_addr_unref(ret_addr);
 		
-		goto end;
+		return;
 	}
 	else
 	{
@@ -831,9 +825,6 @@ unintended:
 		
 		mtc_msg_unref(error_msg);
 	}
-	
-end: 
-	mtc_msg_unref(payload);
 }
 
 static void mtc_object_handle_removed(MtcDest *dest)

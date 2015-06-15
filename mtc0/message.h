@@ -31,6 +31,7 @@ typedef struct
 	//Reference count
 	int refcount;
 	
+	void *bs_ref;
 	uint32_t n_blocks;
 	MtcMBlock blocks[];
 } MtcMsg;

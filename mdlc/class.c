@@ -151,14 +151,12 @@ void mtc_write_one_way_serializers
 		fprintf(c_file, 
 			"    if (! mtc_dstream_is_empty(dstream))\n"
 			"        goto _mtc_destroy_n_return;\n"
-			"    mtc_msg_unref(msg);\n"
 			"    return 0;\n\n");
 		
 		//Failure handling code
 		fprintf(c_file, "_mtc_destroy_n_return:\n");
 		mtc_var_list_code_for_read_fail(list, "args->", c_file);
 		fprintf(c_file, "_mtc_return:\n"
-			"    mtc_msg_unref(msg);\n"
 			"    return -1;\n"
 			"}\n\n");
 	}

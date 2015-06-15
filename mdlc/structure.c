@@ -37,7 +37,7 @@ const char *mtc_c_names[] =
 	"MtcValFlt",
 	"MtcValFlt",
 	"char*",
-	"MtcValRaw",
+	"MtcMBlock",
 	"MtcMsg*",
 	NULL
 };
@@ -229,13 +229,13 @@ void mtc_var_code_for_base_free
 	{
 		if (var->type.base.fid == MTC_TYPE_FUNDAMENTAL_RAW)
 		{
-			fprintf(c_file, "mtc_free(");
+			fprintf(c_file, "mtc_rcmem_unref(");
 			mtc_var_code_base_exp(var, prefix, c_file);
 			fprintf(c_file, ".mem);\n");
 		}
 		else if (var->type.base.fid == MTC_TYPE_FUNDAMENTAL_STRING)
 		{
-			fprintf(c_file, "mtc_free(");
+			fprintf(c_file, "mtc_rcmem_unref(");
 			mtc_var_code_base_exp(var, prefix, c_file);
 			fprintf(c_file, ");\n");
 		}
@@ -319,8 +319,8 @@ void mtc_var_code_for_ref_null
 	if (var->type.cat == MTC_TYPE_FUNDAMENTAL)
 	{
 		if (var->type.base.fid == MTC_TYPE_FUNDAMENTAL_RAW)
-			fprintf(c_file, "mtc_val_raw_null(&(%s%s));\n",
-				prefix, var->parent.name);
+			fprintf(c_file, "(%s%s).mem = NULL; (%s%s).size = 0;\n",
+				prefix, var->parent.name, prefix, var->parent.name);
 		else 
 			fprintf(c_file, "%s%s = NULL;\n", prefix, var->parent.name);
 	}
@@ -1025,13 +1025,11 @@ void mtc_struct_gen_code
 		"    if (! mtc_dstream_is_empty(&dstream))\n"
 		"        goto _mtc_destroy_n_return;\n"
 		"    \n"
-		"    mtc_msg_unref(msg);\n"
 		"    return 0;\n"
 		"    \n"
 		"_mtc_destroy_n_return:\n"
 		"    %s__free(value);\n"
 		"_mtc_return:\n"
-		"    mtc_msg_unref(msg);\n"
 		"    return -1;\n"
 		"}\n\n",
 		value->parent.name, value->parent.name,

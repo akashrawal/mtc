@@ -20,6 +20,8 @@
 
 #include "common.h"
 
+//TODO: Update [de]serialization function conventions
+
 uint32_t mtc_msg_read_member_ptr(MtcMsg *msg)
 {
 	MtcMBlock byte_stream;
@@ -27,10 +29,10 @@ uint32_t mtc_msg_read_member_ptr(MtcMsg *msg)
 	
 	byte_stream = mtc_msg_get_blocks(msg)[0];
 	
-	if (byte_stream.len < 4)
+	if (byte_stream.size < 4)
 		return MTC_MEMBER_PTR_NULL;
 	
-	mtc_uint32_copy_from_le(byte_stream.data, &res);
+	mtc_uint32_copy_from_le(byte_stream.mem, &res);
 	
 	return res;
 }
@@ -44,7 +46,7 @@ MtcMsg *mtc_msg_with_member_ptr_only(uint32_t member_ptr)
 	
 	byte_stream = mtc_msg_get_blocks(msg)[0];
 	
-	mtc_uint32_copy_to_le(byte_stream.data, &member_ptr);
+	mtc_uint32_copy_to_le(byte_stream.mem, &member_ptr);
 	
 	return msg;
 }

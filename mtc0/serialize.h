@@ -48,14 +48,10 @@ typedef void (*MtcMFunc) (void *data);
 ///A structure representing a memory block.
 typedef struct
 {
-	///Memory block.
-	void *data;
+	///Memory block, reference counted.
+	void *mem;
 	///Size of the memory block.
-	uint32_t len;
-	///Function used to free _data_, called when the message is destroyed.
-	MtcMFunc free_func;
-	///Argument to pass to _free_func_.
-	void *free_func_data;
+	size_t size;
 } MtcMBlock;
 
 ///A structure that you can take help of to count how large the 
@@ -395,98 +391,18 @@ void mtc_segment_write_string(MtcSegment *seg, char *val);
  */
 char *mtc_segment_read_string(MtcSegment *seg);
 
-/**A structure that can be used for managing memory blocks shared between 
- * messages and source data.
- */
-typedef struct
-{
-	///Function used to add a reference to the concerned memory block, or NULL
-	MtcMFunc ref_func;
-	///Function used to remove a reference from the concerned memory block,
-	///or NULL
-	MtcMFunc unref_func;
-} MtcMRef;
-
-///An MtcMRef value that you can use if you do not need to manage the memory
-///(e.g. in case of statically/automatically allocated arrays)
-extern const MtcMRef mtc_m_ref_dumb;
-
-///A structure, that MDL type _raw_ maps to.
-typedef struct 
-{
-	///The memory block.
-	void *mem;
-	///Size of the memory block.
-	size_t size;
-	///Pointer to structure containing memory management functions,
-	///or NULL to indicate that memory should be copied, not shared.
-	const MtcMRef *ref;
-	///Data to pass to the memory management functions
-	void *data;
-} MtcValRaw;
-
-#define mtc_val_raw_null(val) \
-do { \
-	(val)->mem = NULL; \
-	(val)->size = 0; \
-	(val)->ref = NULL; \
-	(val)->data = NULL; \
-} while (0)
-
 /**Stores a _raw_ type in the current segment position and increments 
  * the segment's positions accordingly. 
  * \param seg Pointer to the segment
  * \param val The value to store
  */
-void mtc_segment_write_raw(MtcSegment *seg, MtcValRaw val);
+void mtc_segment_write_raw(MtcSegment *seg, MtcMBlock val);
 
 /**Retrives a _raw_ type from the current segment position and 
  * increments the segment's positions accordingly. 
  * \param seg Pointer to the segment
  * \param val The value to store
  */
-void mtc_segment_read_raw(MtcSegment *seg, MtcValRaw *val);
-
-//Common header for all types of data used on MtcFDLink
-//No padding to be assumed
-typedef struct
-{
-	//Magic values
-	char m, t, c, zero;
-	
-	//No. of blocks inside a message.
-	//MSB is one if link is to be stopped after receiving this
-	uint32_t size;
-	
-	//'block size index' (BSI)
-	//Indicates size of each extra block followed by the actual data.
-	uint32_t data[];
-} MtcHeader;
-
-//Structure containing only useful data elements from MtcHeader
-typedef struct 
-{
-	uint32_t size, data_1;
-	int stop;
-} MtcHeaderData;
-
-//Type for the buffer for message
-typedef struct {uint64_t data[2]; } MtcHeaderBuf;
-
-//Macro to calculate size of the header
-#define mtc_header_sizeof(size) (8 + (4 * (size)))
-
-//Macro to calculate minimum size of the header
-//It is the size of data that is read first by MtcFDLink which tells
-//about size of the rest of the header
-#define mtc_header_min_size (mtc_header_sizeof(1))
-
-//Serialize the header for a message
-void mtc_header_write
-	(MtcHeaderBuf *buf, MtcMBlock *blocks, uint32_t n_blocks, int stop);
-
-//Deserialize the message header
-//returns zero for format errors
-int mtc_header_read(MtcHeaderBuf *buf, MtcHeaderData *res);
+void mtc_segment_read_raw(MtcSegment *seg, MtcMBlock *val);
 
 ///}

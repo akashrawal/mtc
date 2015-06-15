@@ -103,6 +103,78 @@ void *mtc_memdup(const void *mem, size_t len)
 	return res;
 }
 
+//Reference counted memory
+typedef struct
+{
+	int refcount;
+} MtcRCMemMembers;
+
+typedef union
+{
+	MtcRCMemMembers s;
+	struct {
+		char d[mtc_offset_align(sizeof(MtcRCMemMembers))];
+	} pad;
+} MtcRCMem;
+
+void *mtc_rcmem_alloc(size_t size)
+{
+	MtcRCMem *md = mtc_alloc(sizeof(MtcRCMem) + size);
+	
+	md->s.refcount = 1;
+	
+	return (void *) (md + 1);
+}
+
+void *mtc_rcmem_tryalloc(size_t size)
+{
+	MtcRCMem *md = mtc_tryalloc(sizeof(MtcRCMem) + size);
+	
+	if (! md)
+		return NULL;
+	
+	md->s.refcount = 1;
+	
+	return (void *) (md + 1);
+}
+
+void *mtc_rcmem_dup(const void *mem, size_t size)
+{
+	MtcRCMem *md = mtc_alloc(sizeof(MtcRCMem) + size);
+	
+	md->s.refcount = 1;
+	memcpy((void *) (md + 1), mem, size);
+	
+	return (void *) (md + 1);
+}
+
+char *mtc_rcmem_strdup(const char *str)
+{
+	size_t size = strlen(str) + 1;
+	MtcRCMem *md = mtc_alloc(sizeof(MtcRCMem) + size);
+	
+	md->s.refcount = 1;
+	memcpy((void *) (md + 1), (void *) str, size);
+	
+	return (void *) (md + 1);
+}
+
+void mtc_rcmem_ref(void *mem)
+{
+	MtcRCMem *md = ((MtcRCMem *) mem) - 1;
+	
+	md->s.refcount++;
+}
+
+void mtc_rcmem_unref(void *mem)
+{
+	MtcRCMem *md = ((MtcRCMem *) mem) - 1;
+	
+	md->s.refcount--;
+	if (md->s.refcount <= 0)
+		mtc_free(md);
+}
+
 //MtcVector
 
 void mtc_vector_init(MtcVector *vector)

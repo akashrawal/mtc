@@ -117,11 +117,9 @@ void mtc_segment_write_string(MtcSegment *seg, char *val)
 	seg->blocks++;
 	
 	//Copy memory
-	len = strlen(val);
-	block->data = mtc_memdup((void *) val, len + 1);
-	block->len = len;
-	block->free_func = mtc_free;
-	block->free_func_data = block->data;
+	len = strlen(val) + 1;
+	block->mem = mtc_rcmem_dup((void *) val, len);
+	block->size = len;
 }
 
 char *mtc_segment_read_string(MtcSegment *seg)
@@ -132,11 +130,11 @@ char *mtc_segment_read_string(MtcSegment *seg)
 	
 	//Fetch it
 	block = seg->blocks;
-	len = block->len;
+	len = block->size;
 	
 	//Verify...
-	res = ch = (char *) block->data;
-	lim = ch + len;
+	res = ch = (char *) block->mem;
+	lim = ch + len - 1;
 	for(; ch < lim ? *ch : 0; ch++)
 		;
 	if (ch != lim)
@@ -145,106 +143,32 @@ char *mtc_segment_read_string(MtcSegment *seg)
 	//Increment
 	seg->blocks++;
 
-	//Take ownership of the memory block
-	block->data = NULL;
+	//Reference count
+	mtc_rcmem_ref(block->mem);
 	
 	return res;
 }
 
-//Memory reference
-const MtcMRef mtc_m_ref_dumb = {NULL, NULL};
-
 //'raw' type
-void mtc_segment_write_raw(MtcSegment *seg, MtcValRaw val)
+void mtc_segment_write_raw(MtcSegment *seg, MtcMBlock val)
 {
 	MtcMBlock *block;
 	
 	block = seg->blocks;
 	seg->blocks++;
-	//Whether to share memory
-	if (val.ref)
-	{
-		block->data = val.mem;
-		block->len = val.size;
-		block->free_func = val.ref->unref_func;
-		block->free_func_data = val.data;
-		//Call the ref function if available
-		if (val.ref->ref_func)
-			(* val.ref->ref_func)(val.data);
-	}
-	else
-	{	
-		//Copy memory
-		block->data = mtc_memdup(val.mem, val.size);
-		block->len = val.size;
-		block->free_func = mtc_free;
-		block->free_func_data = block->data;
-	}
+	
+	*block = val;
+	mtc_rcmem_ref(val.mem);
 }
-void mtc_segment_read_raw(MtcSegment *seg, MtcValRaw *val)
+
+void mtc_segment_read_raw(MtcSegment *seg, MtcMBlock *val)
 {
 	MtcMBlock *block;
 	
 	block = seg->blocks;
 	seg->blocks++;
-	val->mem = block->data;
-	val->size = block->len;
-	val->ref = val->data = NULL;
 	
-	//Take ownership of the memory block
-	block->data = NULL;
+	*val = *block;
+	mtc_rcmem_ref(block->mem);
 }
 
-//Header used by MtcFDLink
-
-//serialize the header for a message
-void mtc_header_write
-	(MtcHeaderBuf *buf, MtcMBlock *blocks, uint32_t n_blocks, int stop)
-{
-	char *buf_c = (char *) buf;
-	char *data_iter, *data_lim;
-	uint32_t size;
-	
-	buf_c[0] = 'M';
-	buf_c[1] = 'T';
-	buf_c[2] = 'C';
-	buf_c[3] = 0;
-	
-	size = n_blocks;
-	if (stop)
-		size |= (1 << 31);
-	mtc_uint32_copy_to_le(buf_c + 4, &size);
-	
-	data_iter = buf_c + 8;
-	data_lim = data_iter + (n_blocks * 4);
-	for (; data_iter < data_lim; data_iter += 4, blocks++)
-	{
-		mtc_uint32_copy_to_le(data_iter, &(blocks->len));
-	}
-}
-
-//Deserialize the message header
-int mtc_header_read(MtcHeaderBuf *buf, MtcHeaderData *res)
-{
-	char *buf_c = (char *) buf;
-	uint32_t size;
-	
-	if (buf_c[0] != 'M' 
-		|| buf_c[1] != 'T'
-		|| buf_c[2] != 'C'
-		|| buf_c[3] != 0)
-	{
-		return 0;
-	}
-	
-	mtc_uint32_copy_from_le(buf_c + 4, &size);
-	res->size = size & (~(((uint32_t) 1) << 31));
-	res->stop = size >> 31;
-	
-	if (res->size == 0)
-		return 0;
-	
-	mtc_uint32_copy_from_le(buf_c + 8, &(res->data_1));
-	
-	return 1;
-}

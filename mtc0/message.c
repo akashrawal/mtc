@@ -34,8 +34,8 @@ MtcMBlock *mtc_msg_get_blocks(MtcMsg *self)
 
 void mtc_msg_iter(MtcMsg *self, MtcDStream *dstream)
 {
-	dstream->bytes = self->blocks->data;
-	dstream->bytes_lim = dstream->bytes + self->blocks->len;
+	dstream->bytes = self->blocks->mem;
+	dstream->bytes_lim = dstream->bytes + self->blocks->size;
 	dstream->blocks = self->blocks + 1;
 	dstream->blocks_lim = self->blocks + self->n_blocks;
 }
@@ -44,22 +44,26 @@ MtcMsg *mtc_msg_new(size_t n_bytes, size_t n_blocks)
 {
 	MtcMsg *self;
 	void *byte_stream;
+	size_t msg_offset;
 	
 	MtcMBlock *m_iter, *m_lim;
 	
 	//Allocate memory
-	self = mtc_alloc2(sizeof(MtcMsg) + ((n_blocks + 1) * sizeof(MtcMBlock)),
-	                  n_bytes, &byte_stream);
+	msg_offset = mtc_offset_align(n_bytes);
+	byte_stream = mtc_rcmem_alloc
+		(msg_offset + sizeof(MtcMsg) 
+		+ ((n_blocks + 1) * sizeof(MtcMBlock)));
+	self = MTC_PTR_ADD(byte_stream, msg_offset);
 	                  
 	//Initialize 'byte stream'
-	self->blocks[0].data = byte_stream;
-	self->blocks[0].len = n_bytes;
-	self->blocks[0].free_func = NULL;
-	self->blocks[0].free_func_data = NULL;
+	self->blocks[0].mem = byte_stream;
+	self->blocks[0].size = n_bytes;
+	mtc_rcmem_ref(byte_stream);
 	
 	//Initialize other members
 	self->n_blocks = n_blocks + 1;
 	self->refcount = 1;
+	self->bs_ref = byte_stream;
 	
 	//Initialize memory block array
 	m_iter = self->blocks + 1;
@@ -67,10 +71,8 @@ MtcMsg *mtc_msg_new(size_t n_bytes, size_t n_blocks)
 	
 	while(m_iter < m_lim)
 	{
-		m_iter->data = NULL;
-		m_iter->len = 0;
-		m_iter->free_func = NULL;
-		m_iter->free_func_data = NULL;
+		m_iter->mem = NULL;
+		m_iter->size = 0;
 		
 		m_iter++;
 	}
@@ -83,24 +85,28 @@ MtcMsg *mtc_msg_try_new_allocd(size_t n_bytes, size_t n_blocks,
 {
 	MtcMsg *self;
 	void *byte_stream;
+	size_t msg_offset;
 	
 	MtcMBlock *m_iter, *m_lim;
 	
 	//Allocate memory
-	self = mtc_tryalloc2(sizeof(MtcMsg) + ((n_blocks + 1) * sizeof(MtcMBlock)),
-	                  n_bytes, &byte_stream);
-	if (! self)
+	msg_offset = mtc_offset_align(n_bytes);
+	byte_stream = mtc_rcmem_tryalloc
+		(msg_offset + sizeof(MtcMsg) 
+		+ ((n_blocks + 1) * sizeof(MtcMBlock)));
+	if (! byte_stream)
 		return NULL;
+	self = MTC_PTR_ADD(byte_stream, msg_offset);
 	                  
-	//Assign main block
-	self->blocks[0].data = byte_stream;
-	self->blocks[0].len = n_bytes;
-	self->blocks[0].free_func = NULL;
-	self->blocks[0].free_func_data = NULL;
+	//Initialize 'byte stream'
+	self->blocks[0].mem = byte_stream;
+	self->blocks[0].size = n_bytes;
+	mtc_rcmem_ref(byte_stream);
 	
 	//Initialize other members
 	self->n_blocks = n_blocks + 1;
 	self->refcount = 1;
+	self->bs_ref = byte_stream;
 	
 	//Allocate other memory blocks
 	m_iter = self->blocks + 1;
@@ -108,15 +114,13 @@ MtcMsg *mtc_msg_try_new_allocd(size_t n_bytes, size_t n_blocks,
 	
 	while(m_iter < m_lim)
 	{
-		m_iter->data = mtc_alloc(*block_sizes + 1);
-		m_iter->len = *block_sizes;
-		m_iter->free_func = mtc_free;
-		m_iter->free_func_data = m_iter->data;
+		m_iter->mem = mtc_rcmem_tryalloc(*block_sizes);
+		m_iter->size = *block_sizes;
 		
-		if (! m_iter->data)
+		if (! m_iter->mem)
 		{
 			for (m_iter--; m_iter > self->blocks; m_iter--)
-				mtc_free(m_iter->data);
+				mtc_rcmem_unref(m_iter->mem);
 			
 			mtc_free(self);
 			return NULL;
@@ -142,16 +146,18 @@ void mtc_msg_unref(MtcMsg *self)
 	{
 		MtcMBlock *m_iter, *m_lim;
 		
-		m_iter = self->blocks + 1;
+		m_iter = self->blocks;
 		m_lim = self->blocks + self->n_blocks;
 		while(m_iter < m_lim)
 		{
-			if (m_iter->data && m_iter->free_func)
-				(* m_iter->free_func)(m_iter->free_func_data);
+			mtc_rcmem_unref(m_iter->mem);
 			m_iter++;
 		}
 		
-		mtc_free(self);
+		if (self->bs_ref)
+			mtc_rcmem_unref(self->bs_ref);
+		else
+			mtc_free(self);
 	}
 }
 
@@ -182,13 +188,9 @@ void mtc_msg_write
 	mtc_dstream_get_segment(dstream, 0, n_blocks, &sub_seg);
 	for (i = 0; i < n_blocks; i++)
 	{
-		sub_seg.blocks[i].data = self->blocks[i].data;
-		sub_seg.blocks[i].len  = self->blocks[i].len;
-		sub_seg.blocks[i].free_func = NULL;
-		sub_seg.blocks[i].free_func_data = NULL;
+		sub_seg.blocks[i] = self->blocks[i];
+		mtc_rcmem_ref(self->blocks[i].mem);
 	}
-	sub_seg.blocks[0].free_func = (MtcMFunc) mtc_msg_unref;
-	sub_seg.blocks[0].free_func_data = self;
 }
 
 MtcMsg *mtc_msg_read(MtcSegment *segment, MtcDStream *dstream)
@@ -210,12 +212,17 @@ MtcMsg *mtc_msg_read(MtcSegment *segment, MtcDStream *dstream)
 		(sizeof(MtcMsg) + ((n_blocks + 1) * sizeof(MtcMBlock)));
 	if (! self)
 		return NULL;
+	
+	//Initialize other members
+	self->n_blocks = n_blocks + 1;
+	self->refcount = 1;
+	self->bs_ref = NULL;
 		
 	//Copy in all blocks
 	for (i = 0; i < n_blocks; i++)
 	{
 		self->blocks[i] = sub_seg.blocks[i];
-		sub_seg.blocks[i].data = NULL;
+		mtc_rcmem_ref(sub_seg.blocks[i].mem);
 	}
 	
 	return self;

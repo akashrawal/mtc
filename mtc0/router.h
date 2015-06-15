@@ -17,19 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
- 
-typedef struct _MtcRing MtcRing;
 
-struct _MtcRing
-{
-	MtcRing *prev, *next;
-};
-
-#define mtc_ring_init(ring_ptr) \
-do {\
-	MtcRing *cast_ring_ptr = (MtcRing *) (ring_ptr); \
-	cast_ring_ptr->prev = cast_ring_ptr->next = cast_ring_ptr; \
-} while(0)
 
 //User API
 

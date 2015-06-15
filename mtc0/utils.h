@@ -20,6 +20,21 @@
  
 //Entire file is private to the library.
 
+//TODO: Refactor
+
+typedef struct _MtcRing MtcRing;
+
+struct _MtcRing
+{
+	MtcRing *prev, *next;
+};
+
+#define mtc_ring_init(ring_ptr) \
+do {\
+	MtcRing *cast_ring_ptr = (MtcRing *) (ring_ptr); \
+	cast_ring_ptr->prev = cast_ring_ptr->next = cast_ring_ptr; \
+} while(0)
+
 /**
  * \addtogroup mtc_internal
  * \{
@@ -29,6 +44,9 @@
 
 //Adds integer to pointer
 #define MTC_PTR_ADD(ptr, bytes) ((void *) (((int8_t *) (ptr)) + (bytes)))
+
+#define mtc_encl_struct(ptr, type, member) \
+	((type *) (MTC_PTR_ADD((ptr), -(offsetof(type, member)))))
 
 //Pointer casting macros
 #define MTC_UINT_TO_PTR(v) MTC_INT_TO_PTR(v))
@@ -132,6 +150,18 @@ void *mtc_tryalloc2(size_t size1, size_t size2, void **mem2_return);
 	(((offset) + mtc_alloc_boundary - 1) \
 	- (((offset) + mtc_alloc_boundary - 1) % mtc_alloc_boundary))
 
+//Reference counted memory
+void *mtc_rcmem_alloc(size_t size);
+
+void *mtc_rcmem_tryalloc(size_t size);
+
+void *mtc_rcmem_dup(const void *mem, size_t size);
+
+char *mtc_rcmem_strdup(const char *str);
+
+void mtc_rcmem_ref(void *mem);
+
+void mtc_rcmem_unref(void *mem);
 
 //Like strdup() but aborts on allocation failures
 char *mtc_strdup(const char *str);
