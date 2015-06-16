@@ -278,12 +278,6 @@ void mtc_router_deliver(MtcRouter *router,
 		(dest, src, ret_addr_data, ret_addr_len, payload);
 }
 
-
-MtcPeer *mtc_router_get_self(MtcRouter *router)
-{
-	return (* router->vtable->get_self)(router);
-}
-
 //Peer
 
 

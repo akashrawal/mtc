@@ -165,7 +165,6 @@ MtcAddr *mtc_dest_copy_addr(MtcDest *dest);
 
 typedef struct
 {
-	MtcPeer *(*get_self) (MtcRouter *router);
 	void (*set_event_mgr) (MtcRouter *router, MtcEventMgr *mgr);
 	void (*peer_sendto) (MtcPeer *peer, 
 		void *addr_data, size_t addr_len,
