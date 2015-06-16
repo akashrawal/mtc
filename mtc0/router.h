@@ -44,8 +44,6 @@ void mtc_router_set_event_mgr(MtcRouter *router, MtcEventMgr *mgr);
 #define mtc_router_get_event_mgr(router) \
 	((MtcEventMgr *) (((MtcRouter *) (router))->mgr))
 
-MtcPeer *mtc_router_get_self(MtcRouter *self);
-
 //Peer
 
 void mtc_peer_ref(MtcPeer *peer);

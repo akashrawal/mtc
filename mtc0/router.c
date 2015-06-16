@@ -382,7 +382,8 @@ void mtc_addr_unref(MtcAddr *addr)
 	
 	if (addr->refcount <= 0)
 	{
-		mtc_peer_unref(addr->peer);
+		if (addr->peer)
+			mtc_peer_unref(addr->peer);
 		free(addr);
 	}
 }
@@ -395,7 +396,8 @@ MtcAddr *mtc_addr_new_null(MtcPeer *peer)
 	addr->refcount = 1;
 	addr->peer = peer;
 	addr->len = 0;
-	mtc_peer_ref(peer);
+	if (peer)
+		mtc_peer_ref(peer);
 		
 	return addr;
 }
@@ -409,7 +411,8 @@ MtcAddr *mtc_addr_new_static(MtcPeer *peer, int static_id)
 	addr->peer = peer;
 	addr->len = 1;
 	mtc_addr_data_unc(addr)[0] = static_id;
-	mtc_peer_ref(peer);
+	if (peer)
+		mtc_peer_ref(peer);
 		
 	return addr;
 }
@@ -425,7 +428,8 @@ MtcAddr *mtc_addr_new_from_raw
 	addr->len = addr_len;
 	if (addr_len)
 		memcpy(mtc_addr_data_unc(addr), addr_data, addr_len);
-	mtc_peer_ref(peer);
+	if (peer)
+		mtc_peer_ref(peer);
 		
 	return addr;
 }
@@ -440,7 +444,8 @@ MtcAddr *mtc_addr_copy(MtcAddr *src_addr)
 	addr->len = src_addr->len;
 	if (src_addr->len)
 		memcpy(mtc_addr_data_unc(addr), mtc_addr_data_unc(src_addr), src_addr->len);
-	mtc_peer_ref(addr->peer);
+	if (addr->peer)
+		mtc_peer_ref(addr->peer);
 		
 	return addr;
 }
@@ -570,7 +575,7 @@ void mtc_dest_unref(MtcDest *dest)
 MtcAddr *mtc_dest_copy_addr(MtcDest *dest)
 {
 	return mtc_addr_new_from_raw
-		(mtc_router_get_self(dest->router), 
+		(NULL, 
 		dest->addr_data, dest->addr_len);
 }
 

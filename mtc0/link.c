@@ -43,18 +43,15 @@ MtcLinkStatus mtc_link_get_out_status(MtcLink *self)
 //Considers the incoming connection of the link to be broken. 
 void mtc_link_break(MtcLink *self)
 {
-	int delta = 0;
-	
 	if ((self->in_status != MTC_LINK_STATUS_BROKEN)
 		|| (self->out_status != MTC_LINK_STATUS_BROKEN))
-		delta = 1;
+	{
+		self->in_status = MTC_LINK_STATUS_BROKEN;
+		self->out_status = MTC_LINK_STATUS_BROKEN;
 	
-	self->in_status = MTC_LINK_STATUS_BROKEN;
-	self->out_status = MTC_LINK_STATUS_BROKEN;
-	
-	if (delta == 1)
 		if (self->vtable->action_hook)
 			(* self->vtable->action_hook)(self);
+	}
 }
 
 //Resumes data reception
@@ -173,18 +170,41 @@ MtcLinkIOStatus mtc_link_receive(MtcLink *self, MtcLinkInData *data)
 	return res;
 }
 
-MtcLinkEventSource *mtc_link_create_event_source
-	(MtcLink *self, MtcEventMgr *mgr)
+void mtc_link_set_events_enabled(MtcLink *self, int val)
 {
-	if (self->event_source)
-		mtc_error("Event source already created");
+	val = val ? 1 : 0;
 	
-	return (* self->vtable->create_event_source)(self, mgr);
+	if (val != self->events_enabled)
+	{
+		self->events_enabled = val;
+		
+		(* self->vtable->set_events_enabled)(self, val);
+	}
 }
 
-MtcLinkEventSource *mtc_link_get_event_source(MtcLink *self)
+static void mtc_link_event_source_init(MtcLink *self)
 {
-	return self->event_source;
+	MtcLinkEventSource *source = mtc_link_get_event_source(self);
+	
+	mtc_event_source_init((MtcEventSource *) source, 
+		&(self->vtable->event_source_vtable));
+	
+	source->link = self;
+	source->received = NULL;
+	source->broken = NULL;
+	source->stopped = NULL;
+	source->data = NULL;
+	
+	self->events_enabled = 0;
+}
+
+static void mtc_link_event_source_destroy(MtcLink *self)
+{
+	MtcLinkEventSource *source = mtc_link_get_event_source(self);
+	
+	source->link = NULL;
+	
+	mtc_event_source_destroy((MtcEventSource *) source);
 }
 
 //Increments the reference count of the link by one.
@@ -201,6 +221,9 @@ void mtc_link_unref(MtcLink *self)
 	{	
 		//Run 'finalize' virtual function.
 		(* (self->vtable->finalize))(self);
+		
+		//Free event source
+		mtc_link_event_source_destroy(self);
 		
 		//Free ourselves
 		mtc_free(self);
@@ -222,26 +245,9 @@ MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable)
 	self->refcount = 1;
 	self->in_status = self->out_status = MTC_LINK_STATUS_OPEN;
 	self->vtable = vtable;
-	self->event_source = NULL;
+	mtc_link_event_source_init(self);
 	
 	return self;
 }
 
-void mtc_link_event_source_init
-	(MtcLinkEventSource *source, MtcLink *self)
-{
-	self->event_source = source;
-	source->link = self;
-	mtc_link_ref(self);
-	source->received = NULL;
-	source->broken = NULL;
-	source->stopped = NULL;
-	source->data = NULL;
-}
 
-void mtc_link_event_source_destroy(MtcLinkEventSource *source)
-{
-	source->link->event_source = NULL;
-	mtc_link_unref(source->link);
-	source->link = NULL;
-}

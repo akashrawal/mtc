@@ -88,6 +88,9 @@ MtcLinkStatus mtc_link_get_in_status(MtcLink *self);
  */
 void mtc_link_break(MtcLink *self);
 
+#define mtc_link_is_broken(self) \
+	(((MtcLink *) (self))->in_status == MTC_LINK_STATUS_BROKEN)
+
 /**Resumes data transmission.
  * \param self The link
  */
@@ -173,10 +176,13 @@ typedef struct
 } MtcLinkEventSource;
 
 //TODO: write doc
-MtcLinkEventSource *mtc_link_create_event_source
-	(MtcLink *self, MtcEventMgr *mgr);
+#define mtc_link_get_event_source(self) \
+	(&(((MtcLink *) (self))->event_source))
 
-MtcLinkEventSource *mtc_link_get_event_source(MtcLink *self);
+void mtc_link_set_events_enabled(MtcLink *self, int val);
+
+#define mtc_link_get_events_enabled(self) \
+	(((MtcLink *) (self))->events_enabled)
 
 /**Increments the reference count of the link by one.
  * \param self The link
@@ -209,8 +215,8 @@ typedef struct
 		(MtcLink *self);
 	MtcLinkIOStatus (*receive)
 		(MtcLink *self, MtcLinkInData *data);
-	MtcLinkEventSource * (*create_event_source)
-		(MtcLink *self, MtcEventMgr *mgr);
+	void (*set_events_enabled) (MtcLink *self, int val);
+	MtcEventSourceVTable event_source_vtable;
 	void (*action_hook) (MtcLink *self); //Can be NULL
 	void (*finalize) (MtcLink *self);
 } MtcLinkVTable;
@@ -221,19 +227,13 @@ struct _MtcLink
 	int refcount;
 	
 	MtcLinkStatus in_status, out_status;
-	MtcLinkEventSource *event_source;
+	int events_enabled;
+	MtcLinkEventSource event_source;
 	
 	const MtcLinkVTable *vtable;
 };
 
 //Creates a new link.
 MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable);
-
-//Init and finalize for MtcLinkEventSource
-void mtc_link_event_source_init
-	(MtcLinkEventSource *source, MtcLink *self);
-
-void mtc_link_event_source_destroy(MtcLinkEventSource *source);
-
 
 ///\}

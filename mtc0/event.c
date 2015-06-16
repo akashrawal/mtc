@@ -20,6 +20,10 @@
 
 #include "common.h"
 
+//Event test data API
+
+//MtcEventSource user API
+
 //MtcEventMgr user API
 
 void mtc_event_mgr_ref(MtcEventMgr *mgr)
@@ -36,72 +40,95 @@ void mtc_event_mgr_unref(MtcEventMgr *mgr)
 	}
 }
 
-//MtcEventSource user API
-
-void mtc_event_source_ref(MtcEventSource *source)
+MtcEventBackend *mtc_event_mgr_back
+	(MtcEventMgr *mgr, MtcEventSource *source)
 {
-	source->refcount++;
-}
-
-void mtc_event_source_unref(MtcEventSource *source)
-{
-	source->refcount--;
-	if (source->refcount <= 0)
-	{
-		(* source->vtable->destroy)(source);
-		(* source->impl_vtable->destroy_source)(source);
-		mtc_free(source);
-	}
-}
-
-void mtc_event_source_set_active(MtcEventSource *source, int value)
-{
-	int old_value = source->active;
-	source->active = value ? 1 : 0;
+	MtcEventBackend *backend;
+	MtcRing *ring, *sentinel;
 	
-	if (source->active != old_value && source->vtable->set_active)
-		(* source->vtable->set_active)(source, value);
+	//Create backend object
+	backend = (MtcEventBackend *) mtc_alloc(mgr->vtable->backend_size);
+	backend->vtable = mgr->vtable;
+	backend->source = source;
+	
+	//Add to event source
+	ring = &(backend->backend_ring);
+	sentinel = &(source->backends);
+	ring->next = sentinel;
+	ring->prev = sentinel->prev;
+	ring->next->prev = ring;
+	ring->prev->next = ring;
+	
+	//Call init and prepare if needed
+	(*backend->vtable->backend_init)(backend, mgr);
+	if (source->tests)
+	{
+		(*backend->vtable->backend_prepare)(backend, source->tests);
+	}
+	
+	return backend;
 }
-
-int mtc_event_source_get_active(MtcEventSource *source)
+	
+void mtc_event_backend_destroy(MtcEventBackend *backend)
 {
-	return source->active;
+	MtcRing *ring;
+	
+	//Call destructor
+	(*backend->vtable->backend_destroy)(backend);
+	
+	//Remove from event source
+	ring = &(backend->backend_ring);
+	ring->next->prev = ring->prev;
+	ring->prev->next = ring->next;
+	
+	//Free
+	mtc_free(backend);
 }
 
 //Event source implementer API
-MtcEventSource *mtc_event_mgr_create_source
-	(MtcEventMgr *mgr, size_t struct_size, MtcEventSourceVTable *vtable)
+void mtc_event_source_init
+	(MtcEventSource *source, const MtcEventSourceVTable *vtable)
 {
-	MtcEventSource *source;
-	void *impl;
-	
-	if (struct_size < sizeof(MtcEventSource))
-		mtc_error("Event source structure size cannot be "
-			"less than sizeof(MtcEventSource)");
-	
-	source = (MtcEventSource *) mtc_alloc2
-		(struct_size, mgr->vtable->sizeof_impl, &impl);
-	
-	source->refcount = 1;
 	source->vtable = vtable;
-	source->impl_vtable = mgr->vtable;
-	source->impl_data = impl;
-	source->active = 0;
+	source->tests = NULL;
+	MtcRing *sentinel = &(source->backends);
+	sentinel->next = sentinel;
+	sentinel->prev = sentinel;
+}
+
+void mtc_event_source_destroy(MtcEventSource *source)
+{
+	MtcRing *sentinel = &(source->backends);
 	
-	(* mgr->vtable->init_source)(source, mgr);
-	
-	return source;
+	//Destroy all backends
+	while (sentinel->next != sentinel)
+	{
+		MtcEventBackend	 *backend = mtc_encl_struct
+			(sentinel->next, MtcEventBackend, backend_ring);
+		
+		mtc_event_backend_destroy(backend);
+	}
 }
 
 void mtc_event_source_prepare
 	(MtcEventSource *source, MtcEventTest *tests)
 {
-	(* source->impl_vtable->prepare)(source, tests);
+	MtcRing *sentinel = &(source->backends), *ring;
+	
+	source->tests = tests;
+	
+	for (ring = sentinel->next; ring != sentinel; ring = ring->next)
+	{
+		MtcEventBackend	 *backend = mtc_encl_struct
+			(ring, MtcEventBackend, backend_ring);
+		
+		(* backend->vtable->backend_prepare)(backend, tests);
+	}
 }
 
-//Framework implementer API
+//Backend implementer API
 
-void mtc_event_mgr_init(MtcEventMgr *mgr, MtcEventImpl *vtable)
+void mtc_event_mgr_init(MtcEventMgr *mgr, MtcEventBackendVTable *vtable)
 {
 	mgr->refcount = 1;
 	mgr->vtable = vtable;
@@ -112,12 +139,8 @@ void mtc_event_mgr_destroy(MtcEventMgr *mgr)
 	//Nothing to do here so far
 }
 
-void *mtc_event_source_get_impl(MtcEventSource *source)
+void mtc_event_backend_event
+	(MtcEventBackend *backend, MtcEventFlags flags)
 {
-	return source->impl_data;
-}
-
-void mtc_event_source_event(MtcEventSource *source, MtcEventFlags event)
-{
-	(* source->vtable->event)(source, event);
+	(* backend->source->vtable->event)(backend->source, flags);
 }
