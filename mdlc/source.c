@@ -494,7 +494,7 @@ void mtc_source_msg_list_free(MtcSourceMsgList *self)
 		mtc_source_ptr_free(iter->location);
 		
 		//Destroy the message
-		free(iter->message);
+		mtc_free(iter->message);
 		
 		//Destroy the message
 		mtc_free(iter);

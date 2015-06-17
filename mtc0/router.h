@@ -29,8 +29,6 @@ typedef struct _MtcRouter MtcRouter;
 
 typedef struct _MtcPeer MtcPeer;
 
-typedef struct _MtcAddr MtcAddr;
-
 typedef struct _MtcDest MtcDest;
 
 //Router
@@ -68,55 +66,21 @@ void mtc_peer_reset_notify_remove(MtcPeerResetNotify *notify);
 
 //Addresses
 
-struct _MtcAddr
-{
-	int refcount;
-//public readonly:
-	MtcPeer *peer;
-	size_t len;
-};
-	
-#define mtc_addr_data(addr) ((unsigned char *) \
-	(((MtcAddr *) (addr))->len \
-	? (MTC_PTR_ADD((addr), mtc_offset_align(sizeof(MtcAddr)))) \
-	: NULL) )
-
-void mtc_addr_ref(MtcAddr *addr);
-
-void mtc_addr_unref(MtcAddr *addr);
-
-MtcAddr *mtc_addr_new_null(MtcPeer *peer);
-
-MtcAddr *mtc_addr_new_static(MtcPeer *peer, int static_id);
-
-MtcAddr *mtc_addr_new_from_raw
-	(MtcPeer *peer, void *addr_data, size_t addr_len);
-
-MtcAddr *mtc_addr_copy(MtcAddr *src_addr);
-
-int mtc_addr_equal(MtcAddr *addr1, MtcAddr *addr2);
-
-int mtc_addr_equal_raw
-	(MtcAddr *addr1, void *addr2_data, size_t addr2_len);
-
-#define mtc_addr_is_null(addr) \
-	((int) (((MtcAddr *) (addr))->len == 0))
-
 #define mtc_static_id_max (255)
 
-#define mtc_addr_is_static(addr) \
-	((int) (((MtcAddr *) (addr))->len == 1))
+MtcMBlock mtc_addr_new_static(int static_id);
 
-#define mtc_addr_get_static_id(addr) \
-	((int) (mtc_addr_data(addr)[0]))
+typedef struct
+{
+	unsigned char static_id;
+} MtcStaticAddr;
 
 //Destinations
 
 typedef struct 
 {
 	void (*msg) (MtcDest *dest, 
-		MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
-		MtcMsg *payload);
+		MtcPeer *src, MtcMBlock ret_addr, MtcMsg *payload);
 	void (*removed) (MtcDest *dest);
 	void (*destroy) (MtcDest *dest);
 } MtcDestVTable;
@@ -125,12 +89,12 @@ struct _MtcDest
 {
 	MtcAflItem parent;
 	
-	int refcount;
-	int removed;
+	MtcMBlock addr;
+	
 	MtcRouter *router;
 	MtcDestVTable *vtable;
-	size_t addr_len;
-	void *addr_data;
+	int refcount;
+	int removed;
 };
 
 void mtc_dest_ref(MtcDest *dest);
@@ -145,19 +109,13 @@ void mtc_dest_remove(MtcDest *dest);
 #define mtc_dest_get_removed(dest) \
 	((int) (((MtcDest *) (dest))->removed))
 
-MtcAddr *mtc_dest_copy_addr(MtcDest *dest);
-
-#define mtc_dest_get_addr(dest) \
-	((void *) (((MtcDest *) (dest))->addr_data))
-
-#define mtc_dest_get_addr_len(dest) \
-	((size_t) (((MtcDest *) (dest))->addr_len))
+MtcMBlock mtc_dest_get_addr(MtcDest *dest);
 
 #define mtc_dest_is_static(dest) \
-	((int) (((MtcDest *) (dest))->addr_len == 1))
+	(((MtcDest *) (dest))->addr.size == 1)
 
 #define mtc_dest_get_static_id(dest) \
-	((int) (((unsigned char *) (((MtcDest *) (dest))->addr_data))[0]))
+	((int) (((MtcStaticAddr *) (((MtcDest *) (dest))->addr.mem))->static_id))
 
 //Implementer API
 
@@ -165,9 +123,8 @@ typedef struct
 {
 	void (*set_event_mgr) (MtcRouter *router, MtcEventMgr *mgr);
 	void (*peer_sendto) (MtcPeer *peer, 
-		void *addr_data, size_t addr_len,
-		MtcDest *reply_dest, MtcMsg *payload);
-	void (*sync_io_step)(MtcRouter *router, MtcPeer *peer);
+		MtcMBlock addr, MtcDest *reply_dest, MtcMsg *payload);
+	int (*sync_io_step)(MtcRouter *router, MtcPeer *peer);
 	void (*peer_destroy)(MtcPeer *peer);
 	void (*destroy)(MtcRouter *router);
 } MtcRouterVTable;
@@ -194,12 +151,10 @@ struct _MtcPeer
 MtcRouter *mtc_router_create
 	(size_t struct_size, MtcRouterVTable *vtable);
 
-void mtc_router_sync_io_step(MtcRouter *router, MtcPeer *peer);
+int mtc_router_sync_io_step(MtcRouter *router, MtcPeer *peer);
 
-void mtc_router_deliver(MtcRouter *router, 
-	void *dest_addr_data, size_t dest_addr_len,
-	MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
-	MtcMsg *payload);
+void mtc_router_deliver(MtcRouter *router, 	MtcMBlock addr,
+	MtcPeer *src, MtcMBlock ret_addr, MtcMsg *payload);
 
 void mtc_peer_init(MtcPeer *peer, MtcRouter *router);
 
@@ -208,7 +163,7 @@ void mtc_peer_destroy(MtcPeer *peer);
 void mtc_peer_reset(MtcPeer *peer);
 
 void mtc_peer_sendto(MtcPeer *peer, 
-		void *addr_data, size_t addr_len,
+		MtcMBlock addr,
 		MtcDest *reply_dest, MtcMsg *payload);
 
 //Function call
@@ -233,10 +188,10 @@ struct _MtcFCHandle
 };
 
 MtcFCHandle *mtc_fc_start
-	(MtcAddr *addr, MtcFCBinary *binary, void *args);
+	(MtcPeer *peer, MtcMBlock addr, MtcFCBinary *binary, void *args);
 
 void mtc_fc_start_unhandled
-	(MtcAddr *addr, MtcFCBinary *binary, void *args);
+	(MtcPeer *peer, MtcMBlock addr, MtcFCBinary *binary, void *args);
 
 MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle);
 
@@ -251,7 +206,8 @@ MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle);
 typedef struct _MtcObjectHandle MtcObjectHandle;
 
 typedef void (*MtcFnImpl) 
-	(MtcObjectHandle *handle, MtcAddr *ret_addr, void *args);
+	(MtcObjectHandle *handle, MtcPeer *src, MtcMBlock ret_addr, 
+	void *args);
 
 struct _MtcObjectHandle
 {
@@ -269,5 +225,6 @@ MtcObjectHandle *mtc_object_handle_new
 #define mtc_object_handle_get_impl_data(handle) \
 	((void *) (((MtcObjectHandle *) (handle))->impl_data))
 
-void mtc_fc_return(MtcAddr *addr, MtcFCBinary *binary, void *out_args);
+void mtc_fc_return(MtcPeer *src, MtcMBlock ret_addr, MtcFCBinary *binary, 
+	void *out_args);
 

@@ -163,6 +163,15 @@ void mtc_rcmem_ref(void *mem);
 
 void mtc_rcmem_unref(void *mem);
 
+///A structure representing a memory block.
+typedef struct
+{
+	///Memory block, reference counted.
+	void *mem;
+	///Size of the memory block.
+	size_t size;
+} MtcMBlock;
+
 //Like strdup() but aborts on allocation failures
 char *mtc_strdup(const char *str);
 //This is self explanatory

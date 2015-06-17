@@ -20,8 +20,6 @@
 
 #include "common.h"
 
-//TODO: Update [de]serialization function conventions
-
 uint32_t mtc_msg_read_member_ptr(MtcMsg *msg)
 {
 	MtcMBlock byte_stream;

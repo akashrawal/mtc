@@ -166,13 +166,25 @@ int main(int argc, char *argv[])
 	}
 	
 	//Open output files
-	buffer = mtc_alloc(file_len + 10);
-	strcpy(buffer, file);
-	strcpy(buffer + file_len - 4, "_defines.h");
-	c_file = fopen(buffer, "w");
-	strcpy(buffer + file_len - 4, "_declares.h");
-	h_file = fopen(buffer, "w");
-	free(buffer);
+	{
+		char *filename = file;
+		char *i;
+		size_t filename_len;
+		
+		//TODO: Not everyone has windowless houses like mine
+		for (i = filename; *i; i++)
+			if (*i == '/')
+				filename = i + 1;
+		filename_len = file_len - (filename - file);
+		
+		buffer = mtc_alloc(filename_len + 10);
+		strcpy(buffer, filename);
+		strcpy(buffer + filename_len - 4, "_defines.h");
+		c_file = fopen(buffer, "w");
+		strcpy(buffer + filename_len - 4, "_declares.h");
+		h_file = fopen(buffer, "w");
+		mtc_free(buffer);
+	}
 	
 	//Generate code
 	{

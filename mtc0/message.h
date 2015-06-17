@@ -81,18 +81,10 @@ void mtc_msg_ref(MtcMsg *self);
 void mtc_msg_unref(MtcMsg *self);
 
 
+MtcDLen mtc_msg_count(MtcMsg *self);
 
-/**Signals are integers that have special meanings when transmitted over
- * a link. 
- */
-typedef enum
-{
-	///No problem
-	MTC_SIGNAL_OK = 0,
-	///MTC traffic over
-	MTC_SIGNAL_STOP = 1,
-	///Make whatever you are doing fail straightaway
-	MTC_SIGNAL_FAIL = 2
-} MtcSignum;
+void mtc_msg_write
+	(MtcMsg *self, MtcSegment *segment, MtcDStream *dstream);
 
-///\}
+MtcMsg *mtc_msg_read(MtcSegment *segment, MtcDStream *dstream);
+

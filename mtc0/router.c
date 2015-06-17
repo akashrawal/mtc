@@ -20,9 +20,6 @@
 
 #include "common.h"
 
-//TODO: memcmp/memcpy vs loop debate?
-
-//TODO: static and dynamic addressing interface?
 
 //TODO: Trap/logging for debugging invalid/unintended messages?
 
@@ -36,11 +33,6 @@ typedef struct
 	unsigned char id[];
 } MtcDynamicAddr;
 
-#define MTC_DYNAMIC_ADDR(addr) ((MtcDynamicAddr *) (addr))
-
-#define mtc_dynamic_len(router) \
-	(sizeof(MtcDynamicAddr) + (router)->dynamic_len);
-
 #define counter ((unsigned char *) (router->dynamic_counter))
 
 static void mtc_router_init_dynamic(MtcRouter *router)
@@ -52,17 +44,32 @@ static void mtc_router_init_dynamic(MtcRouter *router)
 	mtc_afl_init(&(router->dests));
 }
 
-static void mtc_router_add_dynamic_dest
-	(MtcRouter *router, MtcDest *dest)
+static MtcDest *mtc_router_alloc_dynamic_dest
+	(MtcRouter *router, size_t size)
 {
+	MtcMBlock addr;
 	MtcDynamicAddr *dyn_addr;
+	size_t dest_offset;
+	size_t alloc_len;
+	MtcDest *dest;
 	int i;
 	unsigned int key;
 	
+	//Calculations
+	addr.size = sizeof(MtcDynamicAddr) + router->dynamic_len;
+	dest_offset = mtc_offset_align(addr.size);
+	alloc_len = dest_offset + size;
+	
+	//Allocate
+	addr.mem = mtc_rcmem_alloc(alloc_len);
+	dest = (MtcDest *) MTC_PTR_ADD(addr.mem, dest_offset);
+	
+	//Insert
 	key = mtc_afl_insert(&(router->dests), (MtcAflItem *) dest);
 	
 	//Set address
-	dyn_addr = (MtcDynamicAddr *) dest->addr_data;
+	dest->addr = addr;
+	dyn_addr = (MtcDynamicAddr *) addr.mem;
 	dyn_addr->key = key;
 	memcpy(dyn_addr->id, router->dynamic_counter, router->dynamic_len);
 	
@@ -83,6 +90,8 @@ static void mtc_router_add_dynamic_dest
 	}
 	
 	counter[i]++;
+	
+	return dest;
 }
 
 static void mtc_router_remove_dynamic(MtcRouter *router, MtcDest *dest)
@@ -114,9 +123,24 @@ static void mtc_router_init_static(MtcRouter *router)
 	}
 }
 
-static void mtc_router_add_static_dest
-	(MtcRouter *router, MtcDest *dest, int static_id)
+static MtcDest *mtc_router_alloc_static_dest
+	(MtcRouter *router, size_t size, int static_id)
 {
+	MtcMBlock addr;
+	MtcStaticAddr *static_addr;
+	size_t dest_offset;
+	size_t alloc_len;
+	MtcDest *dest;
+	
+	//Calculations
+	addr.size = 1;
+	dest_offset = mtc_offset_align(addr.size);
+	alloc_len = dest_offset + size;
+	
+	//Allocate
+	addr.mem = mtc_rcmem_alloc(alloc_len);
+	dest = (MtcDest *) MTC_PTR_ADD(addr.mem, dest_offset);
+	
 	//Enlarge router->static_dests if neccessary
 	if (static_id >= router->static_dests_len)
 	{
@@ -137,13 +161,17 @@ static void mtc_router_add_static_dest
 		router->static_dests_len = new_len;
 	}
 	
-	//Add
+	//Insert
 	if (router->static_dests[static_id])
 		mtc_error("static_id %d is already occupied", static_id);
 	router->static_dests[static_id] = dest;
 	
 	//Set address
-	((unsigned char *) dest->addr_data)[0] = static_id;
+	dest->addr = addr;
+	static_addr = (MtcStaticAddr *) addr.mem;
+	static_addr->static_id = static_id;
+	
+	return dest;
 }
 
 static void mtc_router_remove_static(MtcRouter *router, MtcDest *dest)
@@ -198,7 +226,7 @@ void mtc_router_unref(MtcRouter *router)
 		mtc_router_free_dynamic(router);
 		mtc_router_free_static(router);
 		
-		free(router);
+		mtc_free(router);
 	}
 }
 
@@ -213,42 +241,40 @@ void mtc_router_set_event_mgr(MtcRouter *router, MtcEventMgr *mgr)
 	router->mgr = mgr;
 }
 
-void mtc_router_sync_io_step(MtcRouter *router, MtcPeer *peer)
+int mtc_router_sync_io_step(MtcRouter *router, MtcPeer *peer)
 {
-	(* router->vtable->sync_io_step)(router, peer);
+	return (* router->vtable->sync_io_step)(router, peer);
 }
 
-void mtc_router_deliver(MtcRouter *router, 
-	void *dest_addr_data, size_t dest_addr_len,
-	MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
-	MtcMsg *payload)
+void mtc_router_deliver(MtcRouter *router, MtcMBlock addr,
+	MtcPeer *src, MtcMBlock ret_addr, MtcMsg *payload)
 {
 	MtcDest *dest = NULL;
 	
 	//Find destination
-	if (dest_addr_len == 1)
+	if (addr.size == 1)
 	{
 		//Static destination
-		int static_id = ((unsigned char *) dest_addr_data)[0];
+		MtcStaticAddr *static_addr = (MtcStaticAddr *) addr.mem;
+		int static_id = static_addr->static_id;
 		
 		if (static_id < router->static_dests_len)
 		{
 			dest = router->static_dests[static_id];
 		}
 	}
-	else if (dest_addr_len > sizeof(MtcDynamicAddr))
+	else if (addr.size > sizeof(MtcDynamicAddr))
 	{
 		//Dynamic destinations
-		MtcDynamicAddr *dyn_addr = (MtcDynamicAddr *) dest_addr_data;
+		MtcDynamicAddr *dyn_addr = (MtcDynamicAddr *) addr.mem;
 		MtcDest *x = (MtcDest *) mtc_afl_lookup
 			(&(router->dests), dyn_addr->key);
 		
 		if (x)
 		{
-			if (dest_addr_len == x->addr_len)
+			if (addr.size == x->addr.size)
 			{
-				if (memcmp(dest_addr_data, x->addr_data, 
-					dest_addr_len) == 0)
+				if (memcmp(addr.mem, x->addr.mem, addr.size) == 0)
 				{
 					dest = x;
 				}
@@ -259,13 +285,12 @@ void mtc_router_deliver(MtcRouter *router,
 	//If destination not found, send error
 	if (! dest)
 	{
-		if (ret_addr_len)
+		if (ret_addr.size)
 		{
 			MtcMsg *error_payload = mtc_msg_with_member_ptr_only
 				(MTC_MEMBER_PTR_ERROR | MTC_ERROR_INVALID_ARGUMENT);
 			
-			mtc_peer_sendto(src, 
-				ret_addr_data, ret_addr_len, NULL, error_payload);
+			mtc_peer_sendto(src, ret_addr, NULL, error_payload);
 			
 			mtc_msg_unref(error_payload);
 		}
@@ -274,12 +299,10 @@ void mtc_router_deliver(MtcRouter *router,
 	}
 	
 	//Deliver
-	(* dest->vtable->msg)
-		(dest, src, ret_addr_data, ret_addr_len, payload);
+	(* dest->vtable->msg)(dest, src, ret_addr, payload);
 }
 
 //Peer
-
 
 void mtc_peer_init(MtcPeer *peer, MtcRouter *router)
 {
@@ -354,134 +377,32 @@ void mtc_peer_reset(MtcPeer *peer)
 	}
 }
 
-void mtc_peer_sendto(MtcPeer *peer, 
-		void *addr_data, size_t addr_len,
+void mtc_peer_sendto(MtcPeer *peer, MtcMBlock addr,
 		MtcDest *reply_dest, MtcMsg *payload)
 {
-	if (! addr_len)
+	if (! addr.size)
 		mtc_error("Attempted to send to a null address");
 	
 	(* peer->router->vtable->peer_sendto)
-		(peer, addr_data, addr_len, reply_dest, payload);
+		(peer, addr, reply_dest, payload);
 }
 
 
 //Addresses
 
-#define mtc_addr_data_unc(addr) ((unsigned char *) \
-	(MTC_PTR_ADD((addr), mtc_offset_align(sizeof(MtcAddr)))) )
-
-void mtc_addr_ref(MtcAddr *addr)
+MtcMBlock mtc_addr_new_static(int static_id)
 {
-	addr->refcount++;
+	MtcMBlock res;
+	MtcStaticAddr *static_addr;
+	
+	static_addr = (MtcStaticAddr *) mtc_rcmem_alloc(1);
+	static_addr->static_id = static_id;
+	
+	res.mem = static_addr;
+	res.size = 1;
+	return res;
 }
 
-void mtc_addr_unref(MtcAddr *addr)
-{
-	addr->refcount--;
-	
-	if (addr->refcount <= 0)
-	{
-		if (addr->peer)
-			mtc_peer_unref(addr->peer);
-		free(addr);
-	}
-}
-
-MtcAddr *mtc_addr_new_null(MtcPeer *peer)
-{
-	MtcAddr *addr;
-	
-	addr = (MtcAddr *) malloc(sizeof(MtcAddr));
-	addr->refcount = 1;
-	addr->peer = peer;
-	addr->len = 0;
-	if (peer)
-		mtc_peer_ref(peer);
-		
-	return addr;
-}
-
-MtcAddr *mtc_addr_new_static(MtcPeer *peer, int static_id)
-{
-	MtcAddr *addr;
-	
-	addr = (MtcAddr *) malloc(mtc_offset_align(sizeof(MtcAddr)) + 1);
-	addr->refcount = 1;
-	addr->peer = peer;
-	addr->len = 1;
-	mtc_addr_data_unc(addr)[0] = static_id;
-	if (peer)
-		mtc_peer_ref(peer);
-		
-	return addr;
-}
-
-MtcAddr *mtc_addr_new_from_raw
-	(MtcPeer *peer, void *addr_data, size_t addr_len)
-{
-	MtcAddr *addr;
-	
-	addr = (MtcAddr *) malloc(mtc_offset_align(sizeof(MtcAddr)) + addr_len);
-	addr->refcount = 1;
-	addr->peer = peer;
-	addr->len = addr_len;
-	if (addr_len)
-		memcpy(mtc_addr_data_unc(addr), addr_data, addr_len);
-	if (peer)
-		mtc_peer_ref(peer);
-		
-	return addr;
-}
-
-MtcAddr *mtc_addr_copy(MtcAddr *src_addr)
-{
-	MtcAddr *addr;
-	
-	addr = (MtcAddr *) malloc(mtc_offset_align(sizeof(MtcAddr)) + src_addr->len);
-	addr->refcount = 1;
-	addr->peer = src_addr->peer;
-	addr->len = src_addr->len;
-	if (src_addr->len)
-		memcpy(mtc_addr_data_unc(addr), mtc_addr_data_unc(src_addr), src_addr->len);
-	if (addr->peer)
-		mtc_peer_ref(addr->peer);
-		
-	return addr;
-}
-
-int mtc_addr_equal(MtcAddr *addr1, MtcAddr *addr2)
-{
-	int i;
-	
-	if (addr1->len != addr2->len)
-		return 0;
-	
-	for (i = 0; i < addr1->len; i++)
-	{
-		if (mtc_addr_data_unc(addr1)[i] != mtc_addr_data_unc(addr2)[i])
-			return 0;
-	}
-	
-	return 1;
-}
-
-int mtc_addr_equal_raw
-	(MtcAddr *addr1, void *addr2_data, size_t addr2_len)
-{
-	int i;
-	
-	if (addr1->len != addr2_len)
-		return 0;
-	
-	for (i = 0; i < addr2_len; i++)
-	{
-		if (mtc_addr_data_unc(addr1)[i] != ((char *) addr2_data)[i])
-			return 0;
-	}
-	
-	return 1;
-}
 
 //Destinations
 
@@ -490,32 +411,18 @@ static MtcDest *mtc_dest_create
 	MtcDestVTable *vtable)
 {
 	MtcDest *dest;
-	void *addr_data;
-	size_t addr_len;
 	
 	if (static_id < 0)
 	{
 		//Dynamic
 		
-		addr_len = mtc_dynamic_len(router);
-		dest = (MtcDest *) mtc_alloc2(size, addr_len, &addr_data);
-		
-		dest->addr_len = addr_len;
-		dest->addr_data = addr_data;
-		
-		mtc_router_add_dynamic_dest(router, dest);
+		dest = mtc_router_alloc_dynamic_dest(router, size);
 	}
 	else if (static_id < 256)
 	{
 		//Static
 		
-		addr_len = 1;
-		dest = (MtcDest *) mtc_alloc2(size, addr_len, &addr_data);
-		
-		dest->addr_len = addr_len;
-		dest->addr_data = addr_data;
-		
-		mtc_router_add_static_dest(router, dest, static_id);
+		dest = mtc_router_alloc_static_dest(router, size, static_id);
 	}
 	else
 	{
@@ -568,15 +475,15 @@ void mtc_dest_unref(MtcDest *dest)
 		(* dest->vtable->destroy)(dest);
 		
 		mtc_router_unref(dest->router);
-		mtc_free(dest);
+		mtc_rcmem_unref(dest->addr.mem);
 	}
 }
 
-MtcAddr *mtc_dest_copy_addr(MtcDest *dest)
+MtcMBlock mtc_dest_get_addr(MtcDest *dest)
 {
-	return mtc_addr_new_from_raw
-		(NULL, 
-		dest->addr_data, dest->addr_len);
+	mtc_rcmem_ref(dest->addr.mem);
+	
+	return dest->addr;
 }
 
 //Function call
@@ -602,9 +509,8 @@ static void mtc_fc_handle_peer_reset(MtcPeerResetNotify *notify)
 	}
 }
 
-static void mtc_fc_handle_msg(MtcDest *dest, 
-		MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
-		MtcMsg *payload)
+static void mtc_fc_handle_msg(MtcDest *dest, MtcPeer *src, 
+	MtcMBlock ret_addr, MtcMsg *payload)
 {
 	MtcFCHandle *handle = (MtcFCHandle *) dest;
 	uint32_t member_ptr;
@@ -645,13 +551,13 @@ static void mtc_fc_handle_msg(MtcDest *dest,
 	}
 	
 unintended:
-	if (ret_addr_data)
+	if (ret_addr.size)
 	{
 		MtcMsg *error_msg = mtc_msg_with_member_ptr_only
 			(MTC_MEMBER_PTR_ERROR | MTC_ERROR_INVALID_ARGUMENT);
 		
 		mtc_peer_sendto
-			(src, ret_addr_data, ret_addr_len, NULL, error_msg);
+			(src, ret_addr, NULL, error_msg);
 		
 		mtc_msg_unref(error_msg);
 	}
@@ -687,7 +593,7 @@ MtcDestVTable mtc_fc_handle_vtable =
 };
 
 MtcFCHandle *mtc_fc_start
-	(MtcAddr *addr, MtcFCBinary *binary, void *args)
+	(MtcPeer *peer, MtcMBlock addr, MtcFCBinary *binary, void *args)
 {
 	MtcFCHandle	*handle;
 	MtcMsg *payload;
@@ -707,10 +613,10 @@ MtcFCHandle *mtc_fc_start
 	
 	//Create and init handle
 	handle = (MtcFCHandle *) mtc_dest_create
-		(addr->peer->router, -1, size, &mtc_fc_handle_vtable);
+		(peer->router, -1, size, &mtc_fc_handle_vtable);
 	
-	handle->peer = addr->peer;
-	mtc_peer_ref(addr->peer);
+	handle->peer = peer;
+	mtc_peer_ref(peer);
 	handle->notify.cb = mtc_fc_handle_peer_reset;
 	if (out_args_offset)
 		handle->out_args = MTC_PTR_ADD(handle, out_args_offset);
@@ -720,26 +626,24 @@ MtcFCHandle *mtc_fc_start
 	handle->binary = binary;
 	handle->cb = handle->cb_data = NULL;
 	
-	mtc_peer_add_reset_notify(addr->peer, &(handle->notify));
+	mtc_peer_add_reset_notify(peer, &(handle->notify));
 		
 	//Send mail
 	payload = (* binary->in_args_ser)(args);
-	mtc_peer_sendto(addr->peer, mtc_addr_data(addr), addr->len, 
-		(MtcDest *) handle, payload);
+	mtc_peer_sendto(peer, addr, (MtcDest *) handle, payload);
 	mtc_msg_unref(payload);
 	
 	return handle;
 }
 
 void mtc_fc_start_unhandled
-	(MtcAddr *addr, MtcFCBinary *binary, void *args)
+	(MtcPeer *peer, MtcMBlock addr, MtcFCBinary *binary, void *args)
 {
 	MtcMsg *payload;
 	
 	//Send mail
 	payload = (* binary->in_args_ser)(args);
-	mtc_peer_sendto(addr->peer, mtc_addr_data(addr), addr->len, 
-		NULL, payload);
+	mtc_peer_sendto(peer, addr, NULL, payload);
 	mtc_msg_unref(payload);
 }
 
@@ -750,8 +654,9 @@ MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle)
 	//Block
 	while ((status = handle->status) == MTC_ERROR_TEMP)
 	{
-		mtc_router_sync_io_step
-			(mtc_dest_get_router(handle), handle->peer);
+		if (mtc_router_sync_io_step
+			(mtc_dest_get_router(handle), handle->peer)	< 0)
+			break;
 	}
 	
 	return status;
@@ -760,7 +665,7 @@ MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle)
 //Object handle
 
 static void mtc_object_handle_msg(MtcDest *dest, 
-		MtcPeer *src, void *ret_addr_data, size_t ret_addr_len, 
+		MtcPeer *src, MtcMBlock ret_addr, 
 		MtcMsg *payload)
 {
 	MtcObjectHandle *handle = (MtcObjectHandle *) dest;
@@ -772,13 +677,10 @@ static void mtc_object_handle_msg(MtcDest *dest,
 	{
 		int fn_id = MTC_MEMBER_PTR_GET_IDX(member_ptr);
 		MtcFCBinary	*fc_binary;
-		MtcAddr *ret_addr;
 		
 		if (fn_id >= handle->binary->n_fns)
 			goto unintended;
 		
-		ret_addr = mtc_addr_new_from_raw
-			(src, ret_addr_data, ret_addr_len);
 		fc_binary = handle->binary->fns + fn_id;
 		
 		//Deserialize in arguments
@@ -790,21 +692,18 @@ static void mtc_object_handle_msg(MtcDest *dest,
 				(payload, args) < 0)
 			{
 				mtc_free(args);
-				mtc_addr_unref(ret_addr);
 				goto unintended;
 			}
 			
-			(* handle->impl[fn_id])(handle, ret_addr, args);
+			(* handle->impl[fn_id])(handle, src, ret_addr, args);
 			
 			(* fc_binary->in_args_free)(args);
 			mtc_free(args);
 		}
 		else
 		{
-			(* handle->impl[fn_id])(handle, ret_addr, NULL);
+			(* handle->impl[fn_id])(handle, src, ret_addr, NULL);
 		}
-		
-		mtc_addr_unref(ret_addr);
 		
 		return;
 	}
@@ -814,13 +713,13 @@ static void mtc_object_handle_msg(MtcDest *dest,
 	}
 	
 unintended:
-	if (ret_addr_data)
+	if (ret_addr.size)
 	{
 		MtcMsg *error_msg = mtc_msg_with_member_ptr_only
 			(MTC_MEMBER_PTR_ERROR | MTC_ERROR_INVALID_ARGUMENT);
 		
 		mtc_peer_sendto
-			(src, ret_addr_data, ret_addr_len, NULL, error_msg);
+			(src, ret_addr, NULL, error_msg);
 		
 		mtc_msg_unref(error_msg);
 	}
@@ -858,14 +757,14 @@ MtcObjectHandle *mtc_object_handle_new
 	return handle;
 }
 
-void mtc_fc_return(MtcAddr *addr, MtcFCBinary *binary, void *out_args)
+void mtc_fc_return(MtcPeer *src, MtcMBlock ret_addr, 
+	MtcFCBinary *binary, void *out_args)
 {
 	MtcMsg *payload;
 	
 	//Send mail
 	payload = (* binary->out_args_ser)(out_args);
-	mtc_peer_sendto(addr->peer, mtc_addr_data(addr), addr->len, 
-		NULL, payload);
+	mtc_peer_sendto(src, ret_addr, NULL, payload);
 	mtc_msg_unref(payload);
 }
 

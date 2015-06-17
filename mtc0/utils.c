@@ -30,7 +30,7 @@ void mtc_warn_break(int to_abort)
 //Memory allocation functions
 void *mtc_alloc(size_t size)
 {
-	void *mem = malloc(size);
+	void *mem = mtc_tryalloc(size);
 	if (! mem)
 	{
 		mtc_error("Memory allocation failed.");
@@ -40,7 +40,7 @@ void *mtc_alloc(size_t size)
 
 void *mtc_realloc(void *old_mem, size_t size)
 {
-	void *mem = realloc(old_mem, size);
+	void *mem = mtc_tryrealloc(old_mem, size);
 	if (! mem)
 	{
 		mtc_error("Memory allocation failed.");
@@ -57,7 +57,7 @@ void *mtc_alloc2(size_t size1, size_t size2, void **mem2_return)
 	size1 = mtc_offset_align(size1);
 	
 	//Now allocate
-	mem1 = malloc(size1 + size2);
+	mem1 = mtc_tryalloc(size1 + size2);
 	if (! mem1)
 	{
 		mtc_error("Memory allocation failed.");
@@ -76,7 +76,7 @@ void *mtc_tryalloc2(size_t size1, size_t size2, void **mem2_return)
 	size1 = mtc_offset_align(size1);
 	
 	//Now allocate
-	mem1 = malloc(size1 + size2);
+	mem1 = mtc_tryalloc(size1 + size2);
 	if (! mem1)
 	{
 		return NULL;
