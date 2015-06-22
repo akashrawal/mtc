@@ -241,11 +241,6 @@ void mtc_router_set_event_mgr(MtcRouter *router, MtcEventMgr *mgr)
 	router->mgr = mgr;
 }
 
-int mtc_router_sync_io_step(MtcRouter *router, MtcPeer *peer)
-{
-	return (* router->vtable->sync_io_step)(router, peer);
-}
-
 void mtc_router_deliver(MtcRouter *router, MtcMBlock addr,
 	MtcPeer *src, MtcMBlock ret_addr, MtcMsg *payload)
 {
@@ -329,8 +324,11 @@ void mtc_peer_unref(MtcPeer *peer)
 	
 	if (peer->refcount <= 0)
 	{
-		peer->reset_notifys.next->prev = NULL;
-		peer->reset_notifys.prev->next = NULL;
+		MtcRing *r = &(peer->reset_notifys);
+		
+		if (r->next != r || r->prev != r)
+			mtc_error("all reset_notify's not removed prior to "
+				"mtc_peer_unref");
 		
 		(* peer->router->vtable->peer_destroy)(peer);
 	}
@@ -352,6 +350,7 @@ void mtc_peer_reset_notify_remove(MtcPeerResetNotify *notify)
 	MtcRing *el = (MtcRing *) notify;
 	el->prev->next = el->next;
 	el->next->prev = el->prev;
+	el->next = el->prev = el;
 }
 
 void mtc_peer_reset(MtcPeer *peer)
@@ -363,14 +362,14 @@ void mtc_peer_reset(MtcPeer *peer)
 	*r2 = *r;
 	r2->prev->next = r2;
 	r2->next->prev = r2;
+	r->next = r->prev = r;
 	
 	while (r2->next != r2)
 	{
 		el = r2->next;
 		el->prev->next = el->next;
 		el->next->prev = el->prev;
-		el->next = el;
-		el->prev = el;
+		el->next = el->prev = el;
 		notify = (MtcPeerResetNotify *) el;
 		
 		(* notify->cb)(notify);
@@ -385,6 +384,11 @@ void mtc_peer_sendto(MtcPeer *peer, MtcMBlock addr,
 	
 	(* peer->router->vtable->peer_sendto)
 		(peer, addr, reply_dest, payload);
+}
+
+int mtc_peer_sync_io_step(MtcPeer *peer)
+{
+	return (* peer->router->vtable->peer_sync_io_step)(peer);
 }
 
 
@@ -534,21 +538,24 @@ static void mtc_fc_handle_msg(MtcDest *dest, MtcPeer *src,
 		}
 		
 		handle->status = MTC_FC_SUCCESS;
-		(* handle->cb)(handle, handle->cb_data);
+		if (handle->cb)
+			(* handle->cb)(handle, handle->cb_data);
 		
 		return;
 	}
 	else if (MTC_MEMBER_PTR_IS_ERROR(member_ptr))
 	{
 		handle->status = MTC_MEMBER_PTR_GET_IDX(member_ptr);
-		(* handle->cb)(handle, handle->cb_data);
-		
+		if (handle->cb)
+			(* handle->cb)(handle, handle->cb_data);
 		return;
 	}
 	else
 	{
 		goto unintended;
 	}
+	
+	mtc_error("Assertion failure: unreachable code");
 	
 unintended:
 	if (ret_addr.size)
@@ -654,8 +661,7 @@ MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle)
 	//Block
 	while ((status = handle->status) == MTC_ERROR_TEMP)
 	{
-		if (mtc_router_sync_io_step
-			(mtc_dest_get_router(handle), handle->peer)	< 0)
+		if (mtc_peer_sync_io_step(handle->peer)	< 0)
 			break;
 	}
 	
@@ -673,7 +679,7 @@ static void mtc_object_handle_msg(MtcDest *dest,
 	
 	member_ptr = mtc_msg_read_member_ptr(payload);
 	
-	if (member_ptr == MTC_MEMBER_PTR_FN)
+	if (MTC_MEMBER_PTR_IS_FN(member_ptr))
 	{
 		int fn_id = MTC_MEMBER_PTR_GET_IDX(member_ptr);
 		MtcFCBinary	*fc_binary;

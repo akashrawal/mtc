@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
-
+//TODO: Finish documentation
  
 /**
  * \addtogroup mtc_link
@@ -81,6 +81,12 @@ MtcLinkStatus mtc_link_get_out_status(MtcLink *self);
  * \return an MtcLinkStatus value that indicates current status of the link
  */
 MtcLinkStatus mtc_link_get_in_status(MtcLink *self);
+
+//Stops the incoming connection of the link. 
+void mtc_link_stop_in(MtcLink *self);
+
+//Stops the outgoing connection of the link. 
+void mtc_link_stop_out(MtcLink *self);
 
 /**Considers the link to be broken. 
  * No further data transmission can happen.
@@ -169,6 +175,7 @@ typedef struct
 	MtcEventSource parent;
 	
 	MtcLink *link;
+	void (*sent) (MtcLink *link, void *data);
 	void (*received) (MtcLink *link, MtcLinkInData in_data, void *data);
 	void (*broken) (MtcLink *link, void *data);
 	void (*stopped) (MtcLink *link, void *data);
@@ -235,5 +242,20 @@ struct _MtcLink
 
 //Creates a new link.
 MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable);
+
+//Asynchronous flush operator
+typedef struct _MtcLinkAsyncFlush MtcLinkAsyncFlush;
+
+MtcLinkAsyncFlush *mtc_link_async_flush_new();
+
+typedef void (*MtcLinkAsyncFlushCB) (MtcLink *link, void *data);
+
+void mtc_link_async_flush_add(MtcLinkAsyncFlush *flush, MtcLink *link);
+
+void mtc_link_async_flush_clear(MtcLinkAsyncFlush *flush);
+
+void mtc_link_async_flush_ref(MtcLinkAsyncFlush *flush);
+
+void mtc_link_async_flush_unref(MtcLinkAsyncFlush *flush);
 
 ///\}

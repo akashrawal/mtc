@@ -44,7 +44,6 @@
 #define MTC_MEMBER_PTR_GET_IDX(ptr) \
 	((ptr) & (~ MTC_MEMBER_PTR_MASK))
 	
-//TODO: Add enums as needed
 typedef enum
 {	
 	MTC_ERROR_TEMP = -1,

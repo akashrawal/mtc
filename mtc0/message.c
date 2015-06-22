@@ -178,8 +178,6 @@ void mtc_msg_write
 	MtcSegment sub_seg;
 	uint32_t n_blocks;
 	
-	mtc_msg_ref(self);
-	
 	//Write the number of blocks
 	n_blocks = self->n_blocks;
 	mtc_segment_write_uint32(segment, n_blocks);
@@ -209,12 +207,12 @@ MtcMsg *mtc_msg_read(MtcSegment *segment, MtcDStream *dstream)
 	
 	//Allocate memory for message
 	self = (MtcMsg *) mtc_tryalloc
-		(sizeof(MtcMsg) + ((n_blocks + 1) * sizeof(MtcMBlock)));
+		(sizeof(MtcMsg) + (n_blocks * sizeof(MtcMBlock)));
 	if (! self)
 		return NULL;
 	
 	//Initialize other members
-	self->n_blocks = n_blocks + 1;
+	self->n_blocks = n_blocks;
 	self->refcount = 1;
 	self->bs_ref = NULL;
 		

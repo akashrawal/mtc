@@ -124,7 +124,7 @@ typedef struct
 	void (*set_event_mgr) (MtcRouter *router, MtcEventMgr *mgr);
 	void (*peer_sendto) (MtcPeer *peer, 
 		MtcMBlock addr, MtcDest *reply_dest, MtcMsg *payload);
-	int (*sync_io_step)(MtcRouter *router, MtcPeer *peer);
+	int (*peer_sync_io_step)(MtcPeer *peer);
 	void (*peer_destroy)(MtcPeer *peer);
 	void (*destroy)(MtcRouter *router);
 } MtcRouterVTable;
@@ -151,8 +151,6 @@ struct _MtcPeer
 MtcRouter *mtc_router_create
 	(size_t struct_size, MtcRouterVTable *vtable);
 
-int mtc_router_sync_io_step(MtcRouter *router, MtcPeer *peer);
-
 void mtc_router_deliver(MtcRouter *router, 	MtcMBlock addr,
 	MtcPeer *src, MtcMBlock ret_addr, MtcMsg *payload);
 
@@ -165,6 +163,8 @@ void mtc_peer_reset(MtcPeer *peer);
 void mtc_peer_sendto(MtcPeer *peer, 
 		MtcMBlock addr,
 		MtcDest *reply_dest, MtcMsg *payload);
+
+int mtc_peer_sync_io_step(MtcPeer *peer);
 
 //Function call
 

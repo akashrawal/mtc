@@ -22,6 +22,47 @@
 
 //Event test data API
 
+int mtc_event_test_check_name(MtcEventTest *test, const char *name)
+{
+	const char *i_test, *i_name, *l_test;
+	
+	i_test = test->name;
+	l_test = i_test + 8;
+	i_name = name;
+	
+	while (*i_name)
+	{
+		if (*i_name != *i_test)
+			return 0;
+		i_name++;
+		i_test++;
+	}
+	
+	while (i_test < l_test)
+	{
+		if (*i_test)
+			return 0;
+		i_test++;
+	}
+	
+	return 1;
+}
+
+void mtc_event_test_pollfd_init
+	(MtcEventTestPollFD *test, int fd, int events)
+{
+	MtcEventTestPollFD data = 
+	{
+		{ NULL, { 'p', 'o', 'l', 'l', 'f', 'd', 0, 0} },
+		fd, 
+		events,
+		0
+	};
+	
+	*test = data;
+}
+
+
 //MtcEventSource user API
 
 //MtcEventMgr user API
@@ -142,5 +183,10 @@ void mtc_event_mgr_destroy(MtcEventMgr *mgr)
 void mtc_event_backend_event
 	(MtcEventBackend *backend, MtcEventFlags flags)
 {
+	flags &= mtc_event_backend_get_req_mask(backend);
+	
+	if (! flags)
+		return;
+	
 	(* backend->source->vtable->event)(backend->source, flags);
 }

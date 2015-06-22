@@ -1,4 +1,3 @@
-/////////////////////////////////////////////////////////////////////
 /* event.h
  * Event-driven framework abstraction
  * 
@@ -36,6 +35,8 @@ struct _MtcEventTest
 	///Test data follows it
 };
 
+int mtc_event_test_check_name(MtcEventTest *test, const char *name);
+
 ///Test name for poll() test
 #define MTC_EVENT_TEST_POLLFD "pollfd"
 
@@ -51,15 +52,14 @@ typedef struct
 	int revents;
 } MtcEventTestPollFD;
 
+void mtc_event_test_pollfd_init
+	(MtcEventTestPollFD *test, int fd, int events);
+
 ///Events supported by the poll() test
 typedef enum 
 {
 	MTC_POLLIN = 1 << 0,
-	MTC_POLLOUT = 1 << 1,
-	MTC_POLLPRI = 1 << 2,
-	MTC_POLLERR = 1 << 3,
-	MTC_POLLHUP = 1 << 4,
-	MTC_POLLNVAL = 1 << 5
+	MTC_POLLOUT = 1 << 1
 } MtcEventTestPollFDEvents;
 
 //MtcEventSource user API
@@ -102,6 +102,8 @@ typedef struct
 {
 	///Called to pass a message to event implementation
 	void (*event) (MtcEventSource *source, MtcEventFlags event);
+	///Messages required by event source
+	MtcEventFlags req_mask;
 } MtcEventSourceVTable;
 
 void mtc_event_source_init
@@ -140,6 +142,9 @@ void mtc_event_backend_event
 
 #define mtc_event_backend_get_source(backend) \
 	(((MtcEventBackend *) (backend))->source)
+
+#define mtc_event_backend_get_req_mask(backend) \
+	(mtc_event_backend_get_source(backend)->vtable->req_mask)
 
 //Implementation detail
 struct _MtcEventSource

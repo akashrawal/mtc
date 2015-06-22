@@ -40,6 +40,30 @@ MtcLinkStatus mtc_link_get_out_status(MtcLink *self)
 	return self->out_status;
 }
 
+//Stops the incoming connection of the link. 
+void mtc_link_stop_in(MtcLink *self)
+{
+	if (self->in_status == MTC_LINK_STATUS_OPEN)
+	{
+		self->in_status = MTC_LINK_STATUS_STOPPED;
+	
+		if (self->vtable->action_hook)
+			(* self->vtable->action_hook)(self);
+	}
+}
+
+//Stops the outgoing connection of the link. 
+void mtc_link_stop_out(MtcLink *self)
+{
+	if (self->out_status == MTC_LINK_STATUS_OPEN)
+	{
+		self->out_status = MTC_LINK_STATUS_STOPPED;
+	
+		if (self->vtable->action_hook)
+			(* self->vtable->action_hook)(self);
+	}
+}
+
 //Considers the incoming connection of the link to be broken. 
 void mtc_link_break(MtcLink *self)
 {
@@ -190,6 +214,7 @@ static void mtc_link_event_source_init(MtcLink *self)
 		&(self->vtable->event_source_vtable));
 	
 	source->link = self;
+	source->sent = NULL;
 	source->received = NULL;
 	source->broken = NULL;
 	source->stopped = NULL;
@@ -250,4 +275,114 @@ MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable)
 	return self;
 }
 
+//Asynchronous flush operator
+typedef struct 
+{
+	MtcRing ring;
+	MtcLink *link;
+} MtcLinkHolder;
 
+struct _MtcLinkAsyncFlush
+{
+	int refcount;
+	
+	MtcRing sentinel;
+};
+
+static void mtc_link_holder_destroy(MtcLinkHolder *holder)
+{
+	MtcRing *ring = &(holder->ring);
+	
+	ring->next->prev = ring->prev;
+	ring->prev->next = ring->next;
+	ring->next = ring;
+	ring->prev = ring;
+	
+	mtc_link_set_events_enabled(holder->link, 0);
+	mtc_link_unref(holder->link);
+	mtc_free(holder);
+}
+
+static void mtc_link_holder_sent(MtcLink *link, void *data)
+{
+	MtcLinkHolder *holder = (MtcLinkHolder *) data;
+	
+	mtc_link_holder_destroy(holder);
+}
+
+#define mtc_link_holder_broken mtc_link_holder_sent
+#define mtc_link_holder_stopped mtc_link_holder_sent
+
+MtcLinkAsyncFlush *mtc_link_async_flush_new()
+{
+	MtcLinkAsyncFlush *flush;
+	MtcRing *sentinel;
+	
+	flush = (MtcLinkAsyncFlush *) mtc_alloc(sizeof(MtcLinkAsyncFlush));
+	
+	flush->refcount = 1;
+	
+	sentinel = &(flush->sentinel);
+	sentinel->next = sentinel;
+	sentinel->prev = sentinel;
+	
+	return flush;
+}
+
+void mtc_link_async_flush_add(MtcLinkAsyncFlush *flush, MtcLink *link)
+{
+	MtcLinkHolder *holder;
+	MtcRing *ring, *sentinel;
+	MtcLinkEventSource *source;
+	
+	if (! mtc_link_can_send(link))
+		return;
+	
+	holder = (MtcLinkHolder *) mtc_alloc(sizeof(MtcLinkHolder));
+	
+	ring = &(holder->ring);
+	sentinel = &(flush->sentinel);
+	ring->next = sentinel;
+	ring->prev = sentinel->prev;
+	ring->next->prev = ring;
+	ring->prev->next = ring;
+	
+	holder->link = link;
+	mtc_link_ref(link);
+	
+	source = mtc_link_get_event_source(link);
+	source->sent = mtc_link_holder_sent;
+	source->received = NULL;
+	source->broken = mtc_link_holder_broken;
+	source->stopped = mtc_link_holder_stopped;
+	mtc_link_stop_in(link);
+	mtc_link_set_events_enabled(link, 1);
+}
+
+void mtc_link_async_flush_clear(MtcLinkAsyncFlush *flush)
+{
+	MtcRing *sentinel = &(flush->sentinel);
+		
+	while (sentinel->next != sentinel)
+	{
+		MtcLinkHolder *holder = (MtcLinkHolder *) sentinel->next;
+		mtc_link_holder_destroy(holder);
+	}
+}
+
+void mtc_link_async_flush_ref(MtcLinkAsyncFlush *flush)
+{
+	flush->refcount++;
+}
+
+void mtc_link_async_flush_unref(MtcLinkAsyncFlush *flush)
+{
+	flush->refcount--;
+	
+	if (flush->refcount <= 0)
+	{
+		mtc_link_async_flush_clear(flush);
+		
+		mtc_free(flush);
+	}
+}

@@ -181,7 +181,7 @@ void mtc_write_one_way_serializers
 			"\n"
 			"    byte_stream = mtc_msg_get_blocks(msg)[0];\n"
 			"\n"
-			"    mtc_uint32_copy_to_le(byte_stream.data, &member_ptr);\n"
+			"    mtc_uint32_copy_to_le(byte_stream.mem, &member_ptr);\n"
 			"\n"
 			"    return msg;\n"
 			"}\n\n",
@@ -246,7 +246,7 @@ void mtc_class_gen_code
 		mtc_write_one_way_serializers
 			(klass, fn->out_args, fn->out_args_base_size, 
 			fn->parent.name, "out_args", "reply", "finish",
-			"MTC_MEMBER_PTR_FN", 0, 
+			"MTC_MEMBER_PTR_FN_RETURN", 0, 
 			h_file, c_file);
 	}
 	
@@ -345,7 +345,7 @@ void mtc_class_gen_code
 		fn = (MtcSymbolFunc *) fn->parent.next, i++)
 	{
 		fprintf(h_file, 
-		"#define %s__%s (mtc__%s__fns + %d);\n\n",
+		"#define %s__%s (mtc__%s__fns[%d])\n\n",
 		klass->parent.name, fn->parent.name, 
 		klass->parent.name, i);
 	}
