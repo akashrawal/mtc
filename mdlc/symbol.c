@@ -34,7 +34,7 @@ static MtcSymbol *mtc_symbol_new
 	res->name = mtc_strdup(name);
 	res->location = mtc_source_ptr_copy(location);
 	res->next = NULL;
-	res->isref = 0;
+	res->reflevel = 0;
 	
 	return res;
 }
@@ -351,59 +351,6 @@ MtcSymbolFunc *mtc_symbol_func_new
 	return func;
 }
 
-//event's garbage collector 
-void mtc_symbol_event_gc(MtcSymbol *symbol)
-{
-	MtcSymbolEvent *event = (MtcSymbolEvent *) symbol;
-	
-	mtc_symbol_list_free((MtcSymbol *) (event->args));
-}
-
-//Dumps contents of an event
-static void mtc_symbol_event_dump(MtcSymbol *symbol, int depth, FILE *stream)
-{
-	MtcSymbolEvent *event = (MtcSymbolEvent *) symbol;
-	MtcSymbol *iter;
-	int i;
-	
-	fprintf(stream, "Event(args = {\n");
-	for (iter = (MtcSymbol *) event->args; iter; iter = iter->next)
-		mtc_symbol_dump(iter, depth + 1, stream);
-	for (i = 0; i < depth; i++)
-		fprintf(stream, "\t");
-	fprintf(stream, "})");
-}
-
-//Returns a new event.
-MtcSymbolEvent *mtc_symbol_event_new
-	(const char *name, const MtcSourcePtr *location, MtcSymbolVar *args)
-{
-	MtcSymbol *symbol;
-	MtcSymbolEvent *event;
-	MtcSymbolVar *iter;
-	MtcDLen base_size = {0, 0}, onesize;
-	
-	symbol = mtc_symbol_new(sizeof(MtcSymbolEvent), name, location);
-	
-	symbol->gc = mtc_symbol_event_gc;
-	symbol->dump_func = mtc_symbol_event_dump;
-	
-	event = (MtcSymbolEvent *) symbol;
-	event->args = args;
-	
-	for (iter = args; iter; 
-		iter = (MtcSymbolVar *) (iter->parent.next))
-	{
-		onesize = mtc_type_calc_base_size(iter->type);
-		base_size.n_bytes += onesize.n_bytes;
-		base_size.n_blocks += onesize.n_blocks;
-	}
-	
-	event->base_size = base_size;
-	
-	return event;
-}
-
 //struct's garbage collector 
 void mtc_symbol_struct_gc(MtcSymbol *symbol)
 {
@@ -468,7 +415,6 @@ void mtc_symbol_class_gc(MtcSymbol *symbol)
 	MtcSymbolClass *class_v = (MtcSymbolClass *) symbol;
 	
 	mtc_symbol_list_free((MtcSymbol *) (class_v->funcs));
-	mtc_symbol_list_free((MtcSymbol *) (class_v->events));
 }
 
 //Dumps contents of a class
@@ -488,18 +434,13 @@ static void mtc_symbol_class_dump(MtcSymbol *symbol, int depth, FILE *stream)
 		mtc_symbol_dump(iter, depth + 1, stream);
 	for (i = 0; i < depth; i++)
 		fprintf(stream, "\t");
-	fprintf(stream, "}, events = {\n");
-	for (iter = (MtcSymbol *) class_v->events; iter; iter = iter->next)
-		mtc_symbol_dump(iter, depth + 1, stream);
-	for (i = 0; i < depth; i++)
-		fprintf(stream, "\t");
 	fprintf(stream, "})");
 }
 
 //Returns a new class.
 MtcSymbolClass *mtc_symbol_class_new
 	(const char *name, const MtcSourcePtr *location,
-	MtcSymbolClass *parent_class, MtcSymbolFunc *funcs, MtcSymbolEvent *events)
+	MtcSymbolClass *parent_class, MtcSymbolFunc *funcs)
 {
 	MtcSymbol *symbol;
 	MtcSymbolClass *class_v;
@@ -512,92 +453,6 @@ MtcSymbolClass *mtc_symbol_class_new
 	class_v = (MtcSymbolClass *) symbol;
 	class_v->parent_class = parent_class;
 	class_v->funcs = funcs;
-	class_v->events = events;
 	
 	return class_v;
-}
-
-//Instance's garbage collector
-void mtc_symbol_instance_gc(MtcSymbol *symbol)
-{
-	//MtcSymbolInstance *instance = (MtcSymbolInstance *) symbol;
-}
-
-//Dumps the contents of an instance
-static void mtc_symbol_instance_dump(MtcSymbol *symbol, int depth, FILE *stream)
-{
-	MtcSymbolInstance *instance = (MtcSymbolInstance *) symbol;
-	
-	fprintf(stream, "Instance(type = ");
-	if (instance->type)
-		fprintf(stream, "'%s'", instance->type->parent.name);
-	else
-		fprintf(stream, "NULL");
-	fprintf(stream, ")");
-}
-
-//Returns a new instance
-MtcSymbolInstance *mtc_symbol_instance_new
-	(const char *name, const MtcSourcePtr *location, MtcSymbolClass *type)
-{
-	MtcSymbol *symbol;
-	MtcSymbolInstance *instance;
-	
-	symbol = mtc_symbol_new(sizeof(MtcSymbolInstance), name, location);
-	
-	symbol->gc = mtc_symbol_instance_gc;
-	symbol->dump_func = mtc_symbol_instance_dump;
-	
-	instance = (MtcSymbolInstance *) symbol;
-	instance->type = type;
-	
-	return instance;
-}
-
-//Server's garbage collector
-void mtc_symbol_server_gc(MtcSymbol *symbol)
-{
-	MtcSymbolServer *server = (MtcSymbolServer *) symbol;
-	
-	mtc_symbol_list_free((MtcSymbol *) server->instances);
-}
-
-//Dumps the contents of a server
-static void mtc_symbol_server_dump(MtcSymbol *symbol, int depth, FILE *stream)
-{
-	MtcSymbolServer *server = (MtcSymbolServer *) symbol;
-	MtcSymbol *iter;
-	int i;
-	
-	fprintf(stream, "Server(parent_server = ");
-	if (server->parent_server)
-		fprintf(stream, "'%s'", server->parent_server->parent.name);
-	else
-		fprintf(stream, "NULL");
-	fprintf(stream, ", instances = {\n");
-	for (iter = (MtcSymbol *) server->instances; iter; iter = iter->next)
-		mtc_symbol_dump(iter, depth + 1, stream);
-	for (i = 0; i < depth; i++)
-		fprintf(stream, "\t");
-	fprintf(stream, "})");
-}
-
-//Returns a new server
-MtcSymbolServer *mtc_symbol_server_new
-	(const char *name, const MtcSourcePtr *location, 
-	MtcSymbolServer *parent_server, MtcSymbolInstance *instances)
-{
-	MtcSymbol *symbol;
-	MtcSymbolServer *server;
-	
-	symbol = mtc_symbol_new(sizeof(MtcSymbolServer), name, location);
-	
-	symbol->gc = mtc_symbol_server_gc;
-	symbol->dump_func = mtc_symbol_server_dump;
-	
-	server = (MtcSymbolServer *) symbol;
-	server->parent_server = parent_server;
-	server->instances = instances;
-	
-	return server;
 }

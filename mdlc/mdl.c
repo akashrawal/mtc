@@ -339,7 +339,6 @@ static MtcSymbolClass *mtc_mdl_read_class
 	MtcSymbolClass *res;
 	MtcSymbol *parent_class = NULL;
 	MtcSymbolDB funcs  = MTC_SYMBOL_DB_INIT;
-	MtcSymbolDB events = MTC_SYMBOL_DB_INIT;
 	MtcSourcePtr *location;
 	
 	//Word 'class' has already been read.
@@ -398,42 +397,25 @@ static MtcSymbolClass *mtc_mdl_read_class
 	}
 	mtc_token_iter_next(iter);
 	
-	//A list of functions and events
+	//A list of functions
 	while (1)
 	{
-		int is_fn;
 		char *fn_name;
-		MtcSymbolDB *target;
 		MtcSymbolVar *in_args = NULL, *out_args = NULL;
 		MtcSourcePtr *fn_location;
 		
-		//'func' or 'event' or '}' is expected
-		if (mtc_match_id(iter, "func"))
+		//'}' will terminate this
+		if (mtc_match_sym(iter, MTC_SC_RC))
 		{
-			is_fn = 1;
-			target = &funcs;
-		}
-		else if (mtc_match_id(iter, "event"))
-		{
-			is_fn = 0;
-			target = &events;
-		}
-		else if (mtc_match_sym(iter, MTC_SC_RC))
+			mtc_token_iter_next(iter);
 			break;
-		else
-		{
-			mtc_expect_error(el, iter, "'func' or 'event' or '}'");
-			
-			goto end_of_loop;
 		}
 		
 		//Note down the location 
 		fn_location = iter->cur->location;
 		
-		mtc_token_iter_next(iter);
-		
-		//Function/event name
-		fn_name = mtc_mdl_read_idfier(iter, target, el);
+		//Function/event name is expected
+		fn_name = mtc_mdl_read_idfier(iter, &funcs, el);
 		if (! fn_name)
 		{
 			goto end_of_loop;
@@ -447,24 +429,20 @@ static MtcSymbolClass *mtc_mdl_read_class
 		}
 		mtc_token_iter_next(iter);
 		
-		//Then [input] arguments
+		//Then input arguments
 		if (mtc_mdl_read_vars(symbol_db, iter, &in_args, el) < 0)
 		{
 			goto end_of_loop;
 		}
 		
-		//in case of function
-		if (is_fn)
+		//If next word is '|', then we have out paramaters as well
+		if (mtc_match_sym(iter, MTC_SC_PIPE))
 		{
-			//If next word is '|', then we have out paramaters as well
-			if (mtc_match_sym(iter, MTC_SC_PIPE))
+			mtc_token_iter_next(iter);
+			//Out paramaters
+			if (mtc_mdl_read_vars(symbol_db, iter, &out_args, el) < 0)
 			{
-				mtc_token_iter_next(iter);
-				//Out paramaters
-				if (mtc_mdl_read_vars(symbol_db, iter, &out_args, el) < 0)
-				{
-					goto end_of_loop;
-				}
+				goto end_of_loop;
 			}
 		}
 		
@@ -485,196 +463,38 @@ static MtcSymbolClass *mtc_mdl_read_class
 		mtc_token_iter_next(iter);
 		
 		//Now add to the database
-		if (is_fn)
-		{
-			mtc_symbol_db_append(target, 
-				(MtcSymbol *) mtc_symbol_func_new
-					(fn_name, fn_location, in_args, out_args));
-		}
-		else
-		{
-			mtc_symbol_db_append(target, 
-				(MtcSymbol *) mtc_symbol_event_new
-					(fn_name, fn_location, in_args));
-		}
+		mtc_symbol_db_append(&funcs, 
+			(MtcSymbol *) mtc_symbol_func_new
+				(fn_name, fn_location, in_args, out_args));
 		
 		
 		continue;
 		
 	end_of_loop:
 		mtc_symbol_db_free(&funcs);
-		mtc_symbol_db_free(&events);
 		mtc_symbol_list_free((MtcSymbol *) in_args);
 		mtc_symbol_list_free((MtcSymbol *) out_args);
 		
 		return NULL;
 	}
 	
-	mtc_token_iter_next(iter);
 	
-	//Create new symbol for struct
+	//Create new symbol for class
 	res = mtc_symbol_class_new
 		(name, location, (MtcSymbolClass *) parent_class, 
-		(MtcSymbolFunc *) funcs.head, (MtcSymbolEvent *) events.head);
+		(MtcSymbolFunc *) funcs.head);
 	
 	//Done
 	return res;
 }
 
-//Read a server
-static MtcSymbolServer *mtc_mdl_read_server
-	(MtcSymbolDB *symbol_db, MtcTokenIter *iter, MtcSourceMsgList *el)
-{
-	MtcSourcePtr *location;
-	char *name;
-	MtcSymbol *parent_server = NULL;
-	MtcSymbolDB instances = MTC_SYMBOL_DB_INIT;
-	
-	//Word 'server' has already been read, continue
-	
-	//Name of server
-	name = mtc_mdl_read_idfier(iter, symbol_db, el);
-	if (! name)
-	{
-		//Error has been set
-		return NULL;
-	}
-	
-	//Note down the location
-	location = iter->prev->location;
-	
-	//Parent server
-	if (mtc_match_sym(iter, MTC_SC_COLON))
-	{
-		char *svr_name;
-		
-		mtc_token_iter_next(iter);
-		
-		if (! mtc_match_type(iter, MTC_TOKEN_ID))
-		{
-			mtc_expect_error(el, iter, "Parent server name");
-			return NULL;
-		}
-		
-		svr_name = iter->cur->str;
-		
-		parent_server = mtc_symbol_list_find(symbol_db->head, svr_name);
-		
-		if (! parent_server)
-		{
-			mtc_source_msg_list_add
-				(el, iter->cur->location, MTC_SOURCE_MSG_ERROR, 
-				"Parent server '%s' not found.", svr_name);
-			return NULL;
-		}
-		
-		if (parent_server->gc != mtc_symbol_server_gc)
-		{
-			mtc_source_msg_list_add
-				(el, iter->cur->location, MTC_SOURCE_MSG_ERROR, 
-				"Symbol '%s' is not a server. ", svr_name);
-			mtc_source_msg_list_add
-				(el, parent_server->location, MTC_SOURCE_MSG_ERROR, 
-				"'%s' was defined here.", svr_name);
-			return NULL;
-		}
-		
-		mtc_token_iter_next(iter);
-	}
-	
-	//Now we should get {
-	if (! mtc_match_sym(iter, MTC_SC_LC))
-	{
-		mtc_expect_error(el, iter, "{");
-		return NULL;
-	}
-	mtc_token_iter_next(iter);
-	
-	//Now a list of servers
-	while (1)
-	{
-		MtcSymbol *type;
-		char *type_name;
-		char *instance_name;
-		MtcSourcePtr *instance_location;
-		
-		//Break if found '}'
-		if (mtc_match_sym(iter, MTC_SC_RC))
-		{
-			mtc_token_iter_next(iter);
-			break;
-		}
-		
-		//Read type
-		if (! mtc_match_type(iter, MTC_TOKEN_ID))
-		{
-			mtc_expect_error(el, iter, "A class name or '}'");
-			goto end_of_loop;
-		}
-		
-		type_name = iter->cur->str;
-		instance_location = iter->cur->location;
-		
-		type = mtc_symbol_list_find(symbol_db->head, type_name);
-		
-		if (! type)
-		{
-			mtc_source_msg_list_add
-				(el, iter->cur->location, MTC_SOURCE_MSG_ERROR, 
-				"Class '%s' not found.", type_name);
-			goto end_of_loop;
-		}
-		
-		if (type->gc != mtc_symbol_class_gc)
-		{
-			mtc_source_msg_list_add
-				(el, iter->cur->location, MTC_SOURCE_MSG_ERROR, 
-				"Symbol '%s' is not a class. ", type_name);
-			mtc_source_msg_list_add
-				(el, type->location, MTC_SOURCE_MSG_ERROR, 
-				"'%s' was defined here.", type_name);
-			goto end_of_loop;
-		}
-		
-		mtc_token_iter_next(iter);
-		
-		//Read instance_name
-		instance_name = mtc_mdl_read_idfier(iter, &instances, el);
-		if (! instance_name)
-			goto end_of_loop;
-		
-		//Next should be ";"
-		if (! mtc_match_sym(iter, MTC_SC_SC))
-		{
-			mtc_expect_error(el, iter, ";");
-			goto end_of_loop;
-		}
-		
-		mtc_token_iter_next(iter);
-		
-		//Add instance
-		mtc_symbol_db_append(&instances, (MtcSymbol *) mtc_symbol_instance_new
-			(instance_name, instance_location, (MtcSymbolClass *) type));
-		
-		continue;
-		
-	end_of_loop:
-		mtc_symbol_db_free(&instances);
-		return NULL;
-	}
-	
-	//Return the server
-	return mtc_symbol_server_new
-		(name, location, (MtcSymbolServer *) parent_server, 
-			(MtcSymbolInstance *) instances.head);
-}
-
 //Reads symbols off a token list. Returns 0 on success, -1 on failure
 int mtc_mdl_parser_parse
 	(MtcTokenIter *iter, MtcSymbolDB *symbol_db, 
-	MtcMacroDB *macro_db, int is_ref, MtcSourceMsgList *el)
+	MtcMacroDB *macro_db, MtcSourceMsgList *el)
 {
 	int res = 0;
+	int reflevel = 0;
 	
 	while (iter->cur)
 	{
@@ -704,77 +524,59 @@ int mtc_mdl_parser_parse
 				break;
 			}
 		}
-		//Check for server
-		else if (mtc_match_id(iter, "server"))
-		{
-			mtc_token_iter_next(iter);
-			symbol = (MtcSymbol *) mtc_mdl_read_server
-				(symbol_db, iter, el);
-			if (! symbol)
-			{
-				res = -1;
-				break;
-			}
-		}
-		//Refer other files
+		//Reference levels
 		else if (mtc_match_id(iter, "ref"))
 		{
-			char *srcname;
-			MtcSource *source;
-			MtcSourcePtr *ref_loc;
-			
 			mtc_token_iter_next(iter);
 			
-			//Must be string
-			if (! mtc_match_type(iter, MTC_TOKEN_STR))
+			if (! mtc_match_sym(iter, MTC_SC_LC))
 			{
-				mtc_expect_error(el, iter, "A file name");
+				mtc_expect_error(el, iter, "'{'");
 				res = -1;
 				break;
 			}
 			
-			//Tracking
-			srcname = iter->cur->str;
-			ref_loc = iter->cur->location;
+			mtc_token_iter_next(iter);
 			
-			//Open the file
-			source = mtc_source_new_from_file(srcname);
-			if (! source)
+			reflevel++;
+		}
+		else if (mtc_match_sym(iter, MTC_SC_RC))
+		{
+			if (reflevel <= 0)
 			{
 				mtc_source_msg_list_add
-					(el, ref_loc, MTC_SOURCE_MSG_ERROR, 
-					"Cannot open '%s' for reading: %s", 
-					srcname, strerror(errno));
+					(el, iter->cur->location, MTC_SOURCE_MSG_ERROR, 
+					"ref: Too many '}'s");
 				res = -1;
 				break;
 			}
 			
-			//Read it
-			res = mtc_mdl_parser_parse_source
-				(source, symbol_db, macro_db, ref_loc, el);
-			
-			//Unref the source
-			mtc_source_unref(source);
-			
 			mtc_token_iter_next(iter);
 			
-			if (res < 0)
-				break;
+			reflevel--;
 		}
 		//Garbage
 		else 
 		{
 			mtc_expect_error(el, iter, 
-				"'struct' or 'class' or 'server' or 'ref'");
+				"'struct' or 'class' or 'ref'");
 			res = -1;
 			break;
 		}
 		
 		if (symbol)
 		{
-			symbol->isref = is_ref;
+			symbol->reflevel = reflevel;
 			mtc_symbol_db_append(symbol_db, symbol);
 		}
+	}
+	
+	if (reflevel > 0 && res == 0)
+	{
+		mtc_source_msg_list_add
+			(el, iter->cur->location, MTC_SOURCE_MSG_ERROR, 
+			"ref: %d closing '}'s expected", reflevel);
+		res = -1;
 	}
 	
 	mtc_token_iter_home(iter);
@@ -782,51 +584,73 @@ int mtc_mdl_parser_parse
 	return res;
 }
 
-//Reads symbols off a source. Returns 0 on success, -1 on failure
+
 int mtc_mdl_parser_parse_source
-	(MtcSource *source, MtcSymbolDB *symbol_db, 
-	MtcMacroDB *macro_db, MtcSourcePtr *ref_loc,
-	MtcSourceMsgList *el)
+	(MtcSource *source, MtcSymbolDB *symbol_db, MtcMacroDB *macro_db, 
+	int debug, MtcSourceMsgList *el)
 {
+	FILE *token_out, *mpp_out, *mdlc_out;
 	MtcToken *tokens;
 	int n_tokens;
 	MtcTokenIter iter;
-	int is_ref;
 	int res;
+	
+	if (debug)
+	{
+#define OPENFILE(file, ext) file = fopen(#file ext, "w")
+		OPENFILE(token_out, ".txt");
+		OPENFILE(mpp_out, ".txt");
+		OPENFILE(mdlc_out, ".txt");
+	
+		if (!token_out || !mpp_out || !mdlc_out)
+		{
+			fprintf(stderr, "Error opening debugging files\n");
+			return 1;
+		}
+	}
 	
 	//Tokenize the source
 	n_tokens = mtc_scanner_scan(source, &tokens, el);
+	if (debug)
+		mtc_token_list_dump(tokens, token_out);
 	if (el->error_count)
 	{
 		mtc_source_msg_list_add
-			(el, ref_loc, MTC_SOURCE_MSG_ERROR, 
+			(el, NULL, MTC_SOURCE_MSG_ERROR, 
 			"Lexical scanner failed on '%s'", source->name);
 		mtc_token_list_free(tokens);
 		return -1;
 	}
 	
-	//Add reference location if available
-	if (ref_loc)
-		mtc_token_list_add_ref(tokens, ref_loc);
-	
 	//Preprocess the source
 	mtc_token_iter_init(&iter, tokens, n_tokens);
 	mtc_preprocessor_run(&iter, macro_db, el);
+	if (debug)
+		mtc_token_list_dump(iter.start, mpp_out);
 	if (el->error_count)
 	{
 		mtc_source_msg_list_add
-			(el, ref_loc, MTC_SOURCE_MSG_ERROR, 
+			(el, NULL, MTC_SOURCE_MSG_ERROR, 
 			"Preprocessor failed on '%s'", source->name);
 		mtc_token_list_free(tokens);
 		return -1;
 	}
 	
 	//Parse the source
-	is_ref = ref_loc ? 1 : 0;
-	res = mtc_mdl_parser_parse(&iter, symbol_db, macro_db, is_ref, el);
+	res = mtc_mdl_parser_parse(&iter, symbol_db, macro_db, el);
+	if (debug)
+		mtc_symbol_db_dump(symbol_db, mdlc_out);
 	
 	//Free the tokens
 	mtc_token_list_free(iter.start);
+	
+	//Close debugging files
+	if (debug)
+	{
+		fclose(token_out);
+		fclose(mpp_out);
+		fclose(mdlc_out);
+	}
 	
 	return res;
 }

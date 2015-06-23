@@ -20,11 +20,10 @@
 
 //Reads symbols off a token list. Returns 0 on success, -1 on failure
 int mtc_mdl_parser_parse
-	(MtcTokenIter *iter, MtcSymbolDB *symbol_db, 
-	MtcMacroDB *macro_db, int is_ref, MtcSourceMsgList *el);
+	(MtcTokenIter *iter, MtcSymbolDB *symbol_db, MtcMacroDB *macro_db, 
+	MtcSourceMsgList *el);
 
 //Reads symbols off a source. Returns 0 on success, -1 on failure
 int mtc_mdl_parser_parse_source
-	(MtcSource *source, MtcSymbolDB *symbol_db, 
-	MtcMacroDB *macro_db, MtcSourcePtr *ref_loc,
-	MtcSourceMsgList *el);
+	(MtcSource *source, MtcSymbolDB *symbol_db, MtcMacroDB *macro_db, 
+	int debug, MtcSourceMsgList *el);

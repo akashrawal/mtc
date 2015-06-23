@@ -29,7 +29,7 @@ struct _MtcSymbol
 	MtcSymbol *next;
 	char *name;
 	MtcSourcePtr *location;
-	int isref;
+	int reflevel;
 	
 	MtcSymbolGC gc;
 	MtcSymbolDumpFunc dump_func;
@@ -218,22 +218,6 @@ MtcSymbolFunc *mtc_symbol_func_new
 //function's garbage collector 
 void mtc_symbol_func_gc(MtcSymbol *symbol);
 
-//Event
-typedef struct
-{
-	MtcSymbol parent;
-	
-	MtcSymbolVar *args;
-	MtcDLen base_size;
-} MtcSymbolEvent;
-
-//Returns a new event.
-MtcSymbolEvent *mtc_symbol_event_new
-	(const char *name, const MtcSourcePtr *location, MtcSymbolVar *args);
-
-//event's garbage collector 
-void mtc_symbol_event_gc(MtcSymbol *symbol);
-
 //Structure
 typedef struct 
 {
@@ -258,43 +242,11 @@ struct _MtcSymbolClass
 	
 	MtcSymbolClass *parent_class;
 	MtcSymbolFunc *funcs;
-	MtcSymbolEvent *events;
 };
 
 //Creates a new class
 MtcSymbolClass *mtc_symbol_class_new
 	(const char *name, const MtcSourcePtr *location,
-	MtcSymbolClass *parent_class, MtcSymbolFunc *funcs, MtcSymbolEvent *events);
+	MtcSymbolClass *parent_class, MtcSymbolFunc *funcs);
 
 void mtc_symbol_class_gc(MtcSymbol *symbol);
-
-//Instances
-typedef struct
-{
-	MtcSymbol parent;
-	
-	MtcSymbolClass *type;
-} MtcSymbolInstance;
-
-MtcSymbolInstance *mtc_symbol_instance_new
-	(const char *name, const MtcSourcePtr *location, MtcSymbolClass *type);
-
-void mtc_symbol_instance_gc(MtcSymbol *symbol);
-
-//Server
-typedef struct _MtcSymbolServer MtcSymbolServer;
-struct _MtcSymbolServer
-{
-	MtcSymbol parent;
-	
-	MtcSymbolServer *parent_server;
-	MtcSymbolInstance *instances;
-};
-
-MtcSymbolServer *mtc_symbol_server_new
-	(const char *name, const MtcSourcePtr *location, 
-	MtcSymbolServer *parent_server, MtcSymbolInstance *instances);
-
-void mtc_symbol_server_gc(MtcSymbol *symbol);
-
-

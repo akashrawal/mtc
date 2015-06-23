@@ -58,7 +58,7 @@ error_t parser(int key, char *arg, struct argp_state *state)
 
 int main(int argc, char *argv[])
 {
-	FILE *token_out, *mpp_out, *mdlc_out, *c_file, *h_file;
+	FILE *c_file, *h_file;
 	int file_len;
 	char *file = NULL;
 	char *buffer;
@@ -106,15 +106,7 @@ int main(int argc, char *argv[])
 	//Open input and debug files
 	source = mtc_source_new_from_file(file);
 	
-	if (debug)
-	{
-#define OPENFILE(file, ext) file = fopen(#file ext, "w")
-		OPENFILE(token_out, ".txt");
-		OPENFILE(mpp_out, ".txt");
-		OPENFILE(mdlc_out, ".txt");
-	}
-	
-	if (!source || (debug && (!token_out || !mpp_out || !mdlc_out)))
+	if (!source)
 	{
 		fprintf(stderr, "Error opening files\n");
 		return 1;
@@ -125,43 +117,13 @@ int main(int argc, char *argv[])
 	el = mtc_source_msg_list_new();
 	
 	{
-		MtcToken *tokens = NULL;
-		int n_tokens;
-		MtcTokenIter iter;
-		
-		int fail_mode = 1;
-		mtc_token_iter_init(&iter, NULL, 0);
-		
-		//Tokenize the file
-		n_tokens = mtc_scanner_scan(source, &tokens, el);
-		if (debug)
-			mtc_token_list_dump(tokens, token_out);
-		if (el->error_count)
-			goto fail;
-		
-		//Run preprocessor
-		mtc_token_iter_init(&iter, tokens, n_tokens);
-		mtc_preprocessor_run(&iter, macro_db, el);
-		if (debug)
-			mtc_token_list_dump(iter.start, mpp_out);
-		if (el->error_count)
-			goto fail;
-		
-		//Run parser
-		mtc_mdl_parser_parse(&iter, symbol_db, macro_db, 0, el);
-		if (debug)
-			mtc_symbol_db_dump(symbol_db, mdlc_out);
-		if (el->error_count)
-			goto fail;
-		
-		mtc_token_list_free(iter.start);
-		fail_mode = 0;
-		
-	fail:
+		int res = mtc_mdl_parser_parse_source
+			(source, symbol_db, macro_db, debug, el);
 		
 		//Spit out errors
 		mtc_source_msg_list_dump(el, stderr);
-		if (fail_mode)
+		
+		if ((res < 0) || (el->error_count))
 			abort();
 	}
 	
@@ -191,7 +153,7 @@ int main(int argc, char *argv[])
 		MtcSymbol *iter;
 		for (iter = symbol_db->head; iter; iter = iter->next)
 		{
-			if (! iter->isref)
+			if (iter->reflevel == 0)
 			{
 				if (iter->gc == mtc_symbol_struct_gc)
 				{
@@ -208,12 +170,6 @@ int main(int argc, char *argv[])
 	}
 	
 	//Close files
-	if (debug)
-	{
-		fclose(token_out);
-		fclose(mpp_out);
-		fclose(mdlc_out);
-	}
 	fclose(c_file);
 	fclose(h_file);
 	

@@ -239,7 +239,7 @@ void mtc_preprocessor_run
 				_MTC_OPERATOR(MTC_SC_MINUS, -)
 				_MTC_OPERATOR(MTC_SC_NOT, !)
 				
-#undef _SYM_OPERATOR
+#undef _MTC_OPERATOR
 				
 			}
 			
@@ -522,13 +522,9 @@ void mtc_preprocessor_run
 			
 			//_include directive evaluation
 			if (last_include >= 0)
-			if (iter->next)
-			if (iter->next->nl_hint)
+			if (iter->next ? iter->next->nl_hint : 1)
 			{
 				MtcSource *incl_source;
-				MtcToken *incl_tokens = NULL;
-				
-				last_include = -1;
 				
 				//By now expression should have been evaluated
 				//so it should be only 1 token wide
@@ -543,6 +539,8 @@ void mtc_preprocessor_run
 					break;
 				}
 				
+				last_include = -1;
+				
 				//Read the file
 				incl_source = mtc_source_new_from_file
 					(iter->cur->str);
@@ -556,7 +554,7 @@ void mtc_preprocessor_run
 				}
 				else
 				{
-					MtcToken *token_iter;
+					MtcToken *token_iter, *incl_tokens = NULL;
 					
 					//Tokenize it
 					mtc_scanner_scan(incl_source, &incl_tokens, el);

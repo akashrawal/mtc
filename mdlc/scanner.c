@@ -376,7 +376,7 @@ void mtc_token_iter_ins_right(MtcTokenIter *self, MtcToken *head)
 	tail->next = self->next;
 	
 	//Update
-	self->next = tail;
+	self->next = head;
 	self->len += n;
 }
 
@@ -391,7 +391,6 @@ typedef struct
 	int rhpos;
 	int max;
 	int lim;
-	int lineno;
 	int line_offset;
 	int cur;
 	int rh;
@@ -407,8 +406,6 @@ static void mtc_scanner_init
 	self->rhpos = -1;
 	self->lim = source->n_chars;
 	self->max = source->n_chars - 1;
-	self->lineno = 0;
-	self->line_offset = -1;
 	self->cur = EOF;
 	self->rh = EOF;
 }
@@ -417,34 +414,8 @@ static void mtc_scanner_init
 static MtcSourcePtr *mtc_scanner_locate
 	(MtcScanner *self, MtcScanner *start)
 {
-	int line;
-	MtcSourcePtr *res = NULL;
-	
-	for (line = self->lineno; line >= start->lineno; line--)
-	{
-		int offset, len;
-		MtcSourceInvType inv_type = MTC_SOURCE_INV_CAT;
-		
-		//Calculate range
-		offset = 0;
-		len = MTC_SOURCE_LINE_LEN(self->source, line);
-		if (line == self->lineno)
-		{
-			len = self->line_offset;
-		}
-		if (line == start->lineno)
-		{
-			offset = start->line_offset;
-			len -= start->line_offset;
-			inv_type = MTC_SOURCE_INV_DIRECT;
-		}
-		
-		//Create new MtcSourcePtr structure
-		res = mtc_source_ptr_new
-			(res, inv_type, self->source, line, offset, len);
-	}
-	
-	return res;
+	return mtc_source_ptr_new(NULL, MTC_SOURCE_INV_DIRECT, 
+		self->source, start->pos, self->pos - start->pos);
 }
 
 static MtcToken *mtc_token_from_vector
@@ -484,23 +455,6 @@ static MtcToken *mtc_token_from_num
 	return token;
 }
 
-//Updates information about current position
-static int mtc_scanner_update(MtcScanner *self)
-{	
-	//Move to correct line first
-	for (; self->lineno < self->source->n_lines; self->lineno++)
-	{
-		if (self->source->lines[self->lineno] >= self->pos)
-			break;
-	}
-	
-	//Now set line_offset
-	self->line_offset = self->pos
-		- MTC_SOURCE_LINE_START(self->source, self->lineno);
-	
-	return 0;
-}
-
 //Advances forward, taking care of backslashes
 static int mtc_scanner_iter(MtcScanner *self)
 {
@@ -514,8 +468,8 @@ static int mtc_scanner_iter(MtcScanner *self)
 	
 	//Dont step on backslash escaped \n's.
 	while ((self->max - self->rhpos >= 2)
-	&& (MTC_SOURCE_NTH_CHAR(self->source, self->rhpos + 1) == '\\')
-	&& (MTC_SOURCE_NTH_CHAR(self->source, self->rhpos + 2) == '\n'))
+	&& (self->source->chars[self->rhpos + 1] == '\\')
+	&& (self->source->chars[self->rhpos + 2] == '\n'))
 	{
 		self->rhpos += 2;
 	}
@@ -525,7 +479,7 @@ static int mtc_scanner_iter(MtcScanner *self)
 	
 	//Update
 	if (self->rhpos < self->lim)
-		self->rh = MTC_SOURCE_NTH_CHAR(self->source, self->rhpos);
+		self->rh = self->source->chars[self->rhpos];
 	else
 		self->rh = EOF;
 	
@@ -564,7 +518,7 @@ static int64_t mtc_scanner_read_integer
 			//Report error
 			location = mtc_source_ptr_new
 				(NULL, MTC_SOURCE_INV_DIRECT, self->source,
-				self->lineno, self->line_offset, 1);
+				self->pos, 1);
 			mtc_source_msg_list_add
 				(self->el, location, MTC_SOURCE_MSG_ERROR,
 				"Unrecognized character \'%c\' in "
@@ -643,7 +597,7 @@ int mtc_scanner_scan
 			{
 				location = mtc_source_ptr_new
 					(NULL, MTC_SOURCE_INV_DIRECT, self.source,
-					ss1.lineno, ss1.line_offset, 2);
+					ss1.pos, 2);
 				mtc_source_msg_list_add
 					(self.el, location, MTC_SOURCE_MSG_ERROR,
 					"Unterminated multiline comment");
@@ -659,7 +613,6 @@ int mtc_scanner_scan
 		}
 		
 		//Initialize for a new token
-		mtc_scanner_update(&self);
 		ss1 = self;
 		mtc_vector_resize(&buf, 0);
 		
@@ -675,7 +628,6 @@ int mtc_scanner_scan
 				&& mtc_isid(self.cur));
 			
 			//Create a token for it
-			mtc_scanner_update(&self);
 			stack = mtc_token_from_vector
 				(stack, &buf, MTC_TOKEN_ID, &self, &ss1, nl_hint);
 			nl_hint = 0;
@@ -708,7 +660,6 @@ int mtc_scanner_scan
 			num = mtc_scanner_read_integer(&self, base, 0);
 			
 			//Create a token for it
-			mtc_scanner_update(&self);
 			stack = mtc_token_from_num
 				(stack, num, MTC_TOKEN_NUM, &self, &ss1, nl_hint);
 			nl_hint = 0;
@@ -778,7 +729,7 @@ int mtc_scanner_scan
 						{
 							location = mtc_source_ptr_new
 								(NULL, MTC_SOURCE_INV_DIRECT, source,
-								self.lineno, self.line_offset, 1);
+								self.pos, 1);
 							mtc_source_msg_list_add
 							(self.el, location, MTC_SOURCE_MSG_ERROR,
 							"Out of range value of escape sequence");
@@ -792,7 +743,7 @@ int mtc_scanner_scan
 						//Put up a warning
 						location = mtc_source_ptr_new
 							(NULL, MTC_SOURCE_INV_DIRECT, source,
-							self.lineno, self.line_offset, 1);
+							self.pos, 1);
 						mtc_source_msg_list_add
 							(self.el, location, MTC_SOURCE_MSG_WARN,
 							"Unknown escape sequence");
@@ -811,7 +762,7 @@ int mtc_scanner_scan
 				
 				location = mtc_source_ptr_new
 					(NULL, MTC_SOURCE_INV_DIRECT, self.source,
-					ss1.lineno, ss1.line_offset, 1);
+					ss1.pos, 1);
 				mtc_source_msg_list_add
 					(self.el, location, MTC_SOURCE_MSG_ERROR,
 					"Unterminated string constant");
@@ -821,7 +772,6 @@ int mtc_scanner_scan
 			
 			//Create a token for it
 			mtc_scanner_iter(&self);
-			mtc_scanner_update(&self);
 			stack = mtc_token_from_vector
 				(stack, &buf, MTC_TOKEN_STR, &self, &ss1, nl_hint);
 			nl_hint = 0;
@@ -858,7 +808,6 @@ int mtc_scanner_scan
 			//If recognized, add it
 			if (sch < MTC_SC_N)
 			{
-				mtc_scanner_update(&self);
 				stack = mtc_token_from_num
 					(stack, sch, MTC_TOKEN_SYM, &self, &ss1, nl_hint);
 				nl_hint = 0;
@@ -870,7 +819,7 @@ int mtc_scanner_scan
 				
 				location = mtc_source_ptr_new
 					(NULL, MTC_SOURCE_INV_DIRECT, self.source,
-					ss1.lineno, ss1.line_offset, 1);
+					ss1.pos, 1);
 				mtc_source_msg_list_add
 					(self.el, location, MTC_SOURCE_MSG_ERROR,
 					"Unrecognized character");

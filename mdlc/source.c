@@ -20,91 +20,12 @@
 
 #include <common.h>
 
+#include <ctype.h>
 #include <stdarg.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
 
-//TODO: Refactor
-
-//Reader
-
-#ifndef EWOULDBLOCK
-#define MTC_IO_TEMP_ERROR(e) ((e == EAGAIN) || (e == EINTR))
-#else
-#if (EAGAIN == EWOULDBLOCK)
-#define MTC_IO_TEMP_ERROR(e) ((e == EAGAIN) || (e == EINTR))
-#else
-#define MTC_IO_TEMP_ERROR(e) ((e == EAGAIN) || (e == EWOULDBLOCK) || (e == EINTR))
-#endif
-#endif
-
-//Return status for IO operation
-typedef enum
-{	
-	//No error
-	MTC_IO_OK = 0,
-	//Temporary error
-	MTC_IO_TEMP = -1,
-	//End-of-file encountered while reading
-	MTC_IO_EOF = -2,
-	//Irrecoverable error
-	MTC_IO_SEVERE = -3
-} MtcIOStatus;
-
-//A simple reader
-typedef struct 
-{
-	void *mem;
-	size_t len;
-	int fd;
-} MtcReader;
-
-
-//Initializes the reader
-static void mtc_reader_init(MtcReader *self, void *mem, size_t len, int fd)
-{
-	self->mem = mem;
-	self->len = len;
-	self->fd  = fd;
-}
-
-//Reads some data. Returns no. of bytes remaining to be read, or one of 
-//MtcIOStatus in case of error.
-static MtcIOStatus mtc_reader_read(MtcReader *self)
-{
-	ssize_t bytes_read;
-	
-	//Precaution
-	if (! self->len)
-		return 0;
-	
-	//Read some data
-	bytes_read = read(self->fd, self->mem, self->len);
-	
-	//Error checking
-	if (bytes_read < 0)
-	{
-		if (MTC_IO_TEMP_ERROR(errno))
-			return MTC_IO_TEMP;
-		else
-			return MTC_IO_SEVERE;
-	}
-	else if (bytes_read == 0)
-		return MTC_IO_EOF;
-	else
-	{
-		//Successful read.
-		//Update and return status
-		self->mem = MTC_PTR_ADD(self->mem, bytes_read);
-		self->len -= bytes_read;
-		
-		if (self->len)
-			return MTC_IO_TEMP;
-		else
-			return MTC_IO_OK;
-	}
-}
 
 //Implementation for MtcSource
 
@@ -118,18 +39,8 @@ void mtc_source_unref(MtcSource *self)
 	self->refcount--;
 	if (self->refcount == 0)
 	{
-		if (self->chunks)
-		{
-			char **iter = self->chunks;
-			char **lim = iter + (self->n_chars >> MTC_SOURCE_CHUNK_OFF) + 1;
-			while (iter < lim)
-			{
-				mtc_free(*iter);
-				
-				iter++;
-			}
-			mtc_free(self->chunks);
-		}
+		if (self->chars)
+			mtc_free(self->chars);
 		if (self->name)
 			mtc_free(self->name);
 		if (self->lines)
@@ -142,7 +53,6 @@ void mtc_source_unref(MtcSource *self)
 MtcSource *mtc_source_new_from_stream(const char *name, int fd)
 {
 	MtcSource *self;
-	MtcReader reader;
 	MtcVector vec;
 	int pos;
 	
@@ -150,71 +60,46 @@ MtcSource *mtc_source_new_from_stream(const char *name, int fd)
 	self = mtc_alloc(sizeof(MtcSource));
 	self->refcount = 1;
 	self->name = mtc_strdup(name);
+	self->chars = NULL;
 	self->n_chars = 0;
-	self->chunks = NULL;
 	self->lines = NULL;
 	self->n_lines = 0;
 	
 	//Read contents of the stream
-	mtc_vector_init(&vec);
-	while(1)
 	{
-		char *onechunk;
-		MtcIOStatus io_stat;
+		off_t res;
 		
-		//Allocate and add a chunk. 
-		onechunk = mtc_alloc(MTC_SOURCE_CHUNK_LEN);
-		mtc_vector_grow(&vec, sizeof(char *));
-		*mtc_vector_last(&vec, char *) = onechunk;
+		if ((res = lseek(fd, 0, SEEK_END)) < 0)
+			mtc_error("lseek: %s", strerror(errno));
 		
-		//Initialize reader
-		mtc_reader_init(&reader, onechunk, MTC_SOURCE_CHUNK_LEN, fd);
+		self->n_chars = res;
+		self->chars = (char *) mtc_alloc(res + 1);
 		
-		//Read
-		while ((io_stat = mtc_reader_read(&reader)) == MTC_IO_TEMP)
-			;
+		if (lseek(fd, 0, SEEK_SET) < 0)
+			mtc_error("lseek: %s", strerror(errno));
 		
-		//Act on results
-		if (io_stat == MTC_IO_OK)
+		if (read(fd, self->chars, self->n_chars) != self->n_chars)
+			mtc_error("read: %s", strerror(errno));
+		
+		if (self->chars[self->n_chars - 1] != '\n')
 		{
-			self->n_chars += MTC_SOURCE_CHUNK_LEN;
-			continue;
+			self->chars[self->n_chars] = '\n';
+			self->n_chars++;
 		}
-		else 
-		{
-			//In case of error destroy everything and exit
-			if (io_stat == MTC_IO_SEVERE)
-			{
-				self->chunks = (char **) vec.data;
-				mtc_source_unref(self);
-				return NULL;
-			}
-			
-			self->n_chars += MTC_SOURCE_CHUNK_LEN - reader.len;
-			
-			break;
-		}
-		return NULL;
 	}
-	self->chunks = (char **) vec.data;
 	
 	//Now index lines
 	mtc_vector_init(&vec);
+	mtc_vector_grow(&vec, sizeof(int));
+	*mtc_vector_last(&vec, int) = 0;
 	for(pos = 0; pos < self->n_chars; pos++)
 	{
-		if (MTC_SOURCE_NTH_CHAR(self, pos) == '\n')
+		if (self->chars[pos] == '\n')
 		{
 			mtc_vector_grow(&vec, sizeof(int));
-			*mtc_vector_last(&vec, int) = pos;
+			*mtc_vector_last(&vec, int) = pos + 1;
 			self->n_lines++;
 		}
-	}
-	//Just to cope if the last line doesnt have newline character
-	if (MTC_SOURCE_NTH_CHAR(self, pos - 1) != '\n')
-	{
-		mtc_vector_grow(&vec, sizeof(int));
-		*mtc_vector_last(&vec, int) = pos;
-		self->n_lines++;
 	}
 	self->lines = (int *) vec.data;
 	
@@ -237,10 +122,32 @@ MtcSource *mtc_source_new_from_file(const char *filename)
 	return self;
 }
 
+int mtc_source_get_lineno(MtcSource *self, int pos)
+{
+	int left = 0;
+	int right = self->n_lines;
+	
+	if ((pos >= self->n_chars) || (pos < 0))
+		mtc_error("pos out of range");
+	
+	while ((right - left) > 1)
+	{
+		int mid = (left + right) / 2;
+		
+		if (pos < self->lines[mid])
+			right = mid;
+		else
+			left = mid;
+	}
+	
+	return left;
+}
+
+//TODO: null bytes?
 char *mtc_source_dup_line(MtcSource *self, int lineno)
 {
-	int start, end, src_iter;
-	char *res, *res_iter;
+	int start, len;
+	char *res;
 	
 	//Check whether line exists
 	if (lineno >= self->n_lines)
@@ -248,19 +155,12 @@ char *mtc_source_dup_line(MtcSource *self, int lineno)
 	
 	//Calculate the range that we have to copy
 	start = MTC_SOURCE_LINE_START(self, lineno);
-	end = self->lines[lineno];
+	len = MTC_SOURCE_LINE_LEN(self, lineno);
 	
-	//Allocate memory
-	res_iter = res = mtc_alloc(end - start + 1);
-	
-	//Copy line
-	for (src_iter = start; src_iter < end; src_iter++, res_iter++)
-	{
-		*res_iter = MTC_SOURCE_NTH_CHAR(self, src_iter);
-	}
-	
-	//Copy in last null byte
-	*res_iter = 0;
+	//Allocate and copy
+	res = mtc_alloc(len + 1);
+	memcpy(res, self->chars + start, len);
+	res[len] = '\0';
 	
 	return res;
 }
@@ -268,7 +168,7 @@ char *mtc_source_dup_line(MtcSource *self, int lineno)
 //MtcSourcePtr
 MtcSourcePtr *mtc_source_ptr_new
 	(MtcSourcePtr *next, MtcSourceInvType inv_type, MtcSource *source,
-	int lineno, int start, int len)
+	int start, int len)
 {
 	MtcSourcePtr *res;
 	
@@ -277,7 +177,6 @@ MtcSourcePtr *mtc_source_ptr_new
 	res->next = next;
 	res->inv_type = inv_type;
 	res->source = source;
-	res->lineno = lineno;
 	res->start = start;
 	res->len = len;
 	mtc_source_ref(source);
@@ -352,45 +251,43 @@ void mtc_source_ptr_write(MtcSourcePtr *sptr, FILE *stream)
 	
 	for (; sptr; sptr = sptr->next)
 	{
-		int i, line_start, line_end;
+		int start_line, end_line, disp_start, disp_lim, i, j, line_beg;
 		
-		//Find out about the line
-		line_end = sptr->source->lines[sptr->lineno];
-		line_start = MTC_SOURCE_LINE_START(sptr->source, sptr->lineno);
-		
-		//Assertions
-		if (sptr->start + sptr->len > line_end)
-			mtc_error("Assertion failure");
+		start_line = mtc_source_get_lineno(sptr->source, sptr->start);
+		disp_start = MTC_SOURCE_LINE_START(sptr->source, start_line);
+		end_line = mtc_source_get_lineno
+			(sptr->source, sptr->start + sptr->len);
+		disp_lim = MTC_SOURCE_LINE_START(sptr->source, end_line + 1);
 		
 		//Write about the source
 		fprintf(stream, "%s %s line %d col %d:\n", 
 			inv_to_str[sptr->inv_type],
 			sptr->source->name, 
-			sptr->lineno + 1, sptr->start);
+			start_line + 1, sptr->start - disp_start);
 		
-		//Quote the line
-		for (i = line_start; i < line_end; i++)
+		//Quote line
+		for (line_beg = i = disp_start; i < disp_lim; i++)
 		{
-			putc(MTC_SOURCE_NTH_CHAR(sptr->source, i), stream);
+			int onechar = sptr->source->chars[i];
+			putc(onechar, stream);
+			
+			//Mark relevant portion
+			if (onechar == '\n')
+			{
+				for (j = line_beg; j <= i; j++)
+				{
+					onechar = sptr->source->chars[j];
+					if (isspace(onechar) && onechar != ' ')
+						putc(onechar, stream);
+					else if ((j >= sptr->start)
+						&& (j < (sptr->start + sptr->len)))
+						putc('^', stream);
+					else
+						putc(' ', stream);
+				}
+				line_beg = j;
+			}
 		}
-		putc('\n', stream);
-		
-		//Mark the relevant portion
-		for (i = line_start; i < line_start + sptr->start; i++)
-		{
-			char onechar = MTC_SOURCE_NTH_CHAR(sptr->source, i);
-			char outchar;
-			if (onechar == '\t')
-				outchar = '\t';
-			else 
-				outchar = ' ';
-			putc(outchar, stream);
-		}
-		for (i = 0; i < sptr->len; i++)
-		{
-			putc('^', stream);
-		}
-		putc('\n', stream);
 	}
 }
 

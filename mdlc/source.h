@@ -21,25 +21,20 @@
 
 //Source file (stores contents in memory)
 typedef struct _MtcSource MtcSource;
-#define MTC_SOURCE_CHUNK_OFF (8)
-#define MTC_SOURCE_CHUNK_LEN (1 << MTC_SOURCE_CHUNK_OFF)
-#define MTC_SOURCE_NTH_CHAR(source, n) \
-	((source)->chunks[(n) / MTC_SOURCE_CHUNK_LEN][(n) % MTC_SOURCE_CHUNK_LEN])
 #define MTC_SOURCE_LINE_START(source, n) \
-	((n) > 0 ? (source)->lines[(n) - 1] + 1 : 0)
+	((source)->lines[(n)])
 #define MTC_SOURCE_LINE_LEN(source, n) \
-	((source)->lines[(n)] - MTC_SOURCE_LINE_START((source), (n)))
+	((source)->lines[(n) + 1] - (source)->lines[(n)])
 struct _MtcSource
 {
 	//Name of the source
 	char *name;
 	//Contents of the source
-	char **chunks;
-	//No. of characters
-	int n_chars;
-	//Offset of each newline character
+	char *chars;
+	size_t n_chars;
+	//Offset of each line beginning
 	int *lines;
-	int n_lines;
+	size_t n_lines;
 	
 	int refcount;
 };
@@ -48,6 +43,7 @@ void mtc_source_ref(MtcSource *self);
 void mtc_source_unref(MtcSource *self);
 MtcSource *mtc_source_new_from_stream(const char *name, int fd);
 MtcSource *mtc_source_new_from_file(const char *filename);
+int mtc_source_get_lineno(MtcSource *self, int pos);
 char *mtc_source_dup_line(MtcSource *self, int lineno);
 
 //Describes in what way a particular source is involved in describing
@@ -74,13 +70,13 @@ struct _MtcSourcePtr
 	MtcSourcePtr *next;
 	MtcSource *source;
 	MtcSourceInvType inv_type;
-	int lineno, start, len;
-	//start is from beginning of the line
+	int start, len;
+	//start is from beginning of the source
 };
 
 MtcSourcePtr *mtc_source_ptr_new
 	(MtcSourcePtr *next, MtcSourceInvType inv_type, MtcSource *source,
-	int lineno, int start, int len);
+	int start, int len);
 MtcSourcePtr *mtc_source_ptr_copy(const MtcSourcePtr *sptr);
 void mtc_source_ptr_free(MtcSourcePtr *sptr);
 void mtc_source_ptr_append
