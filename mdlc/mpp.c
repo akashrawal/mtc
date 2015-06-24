@@ -525,6 +525,7 @@ void mtc_preprocessor_run
 			if (iter->next ? iter->next->nl_hint : 1)
 			{
 				MtcSource *incl_source;
+				MtcToken *token_iter, *incl_tokens = NULL;
 				
 				//By now expression should have been evaluated
 				//so it should be only 1 token wide
@@ -554,12 +555,12 @@ void mtc_preprocessor_run
 				}
 				else
 				{
-					MtcToken *token_iter, *incl_tokens = NULL;
-					
 					//Tokenize it
 					mtc_scanner_scan(incl_source, &incl_tokens, el);
 					mtc_source_unref(incl_source);
-					
+				}
+				if (incl_tokens)
+				{	
 					//Add include's location to the tokens
 					for (token_iter = incl_tokens; 
 						token_iter; token_iter = token_iter->next)
