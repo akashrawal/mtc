@@ -18,8 +18,6 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-//TODO: Remove event related stuff
-
 #include <mtc0/mtc.h>
 #include <string.h>
 

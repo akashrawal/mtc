@@ -18,8 +18,6 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-//TODO: Add support for saving serialization to files
-
 #include "common.h"
 
 size_t mtc_msg_get_n_blocks(MtcMsg *self)

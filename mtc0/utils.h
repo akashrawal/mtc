@@ -17,10 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
- 
-//Entire file is private to the library.
 
-//TODO: Refactor
 
 typedef struct _MtcRing MtcRing;
 
@@ -36,10 +33,10 @@ do {\
 } while(0)
 
 /**
- * \addtogroup mtc_internal
+ * \addtogroup mtc_util
  * \{
  * 
- * This section documents a collection of important internal functions.
+ * This section documents a collection of important utility functions.
  */
 
 //Adds integer to pointer
@@ -151,16 +148,48 @@ void *mtc_tryalloc2(size_t size1, size_t size2, void **mem2_return);
 	- (((offset) + mtc_alloc_boundary - 1) % mtc_alloc_boundary))
 
 //Reference counted memory
+/**Allocates reference counted memory of size bytes.
+ * Newly allocated memory has reference count 1.
+ * If memory allocation fails the program is aborted.
+ * \param size Number of bytes to allocate
+ * \return Newly allocated reference counted memory
+ */
 void *mtc_rcmem_alloc(size_t size);
 
+/**Allocates reference counted memory of size bytes.
+ * Newly allocated memory has reference count 1.
+ * If memory allocation fails NULL is returned.
+ * \param size Number of bytes to allocate
+ * \return Newly allocated reference counted memory, or NULL
+ */
 void *mtc_rcmem_tryalloc(size_t size);
 
+/**Copies given data into a newly allocated reference counted memory.
+ * Newly allocated memory has reference count 1.
+ * If memory allocation fails the program is aborted.
+ * \param mem The memory to copy data from
+ * \param size Number of bytes to allocate
+ * \return Newly allocated reference counted memory, or NULL
+ */
 void *mtc_rcmem_dup(const void *mem, size_t size);
 
+/**Copies given string into a newly allocated reference counted memory.
+ * Newly allocated memory has reference count 1.
+ * If memory allocation fails the program is aborted.
+ * \param str The string to copy
+ * \return Newly allocated reference counted memory, or NULL
+ */
 char *mtc_rcmem_strdup(const char *str);
 
+/**Increments reference count of the memory.
+ * \param mem Reference counted memory.
+ */
 void mtc_rcmem_ref(void *mem);
 
+/**Decrements reference count of the memory.
+ * If reference count of the memory drops to 0, the memory is freed.
+ * \param mem Reference counted memory.
+ */
 void mtc_rcmem_unref(void *mem);
 
 ///A structure representing a memory block.

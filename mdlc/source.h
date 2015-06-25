@@ -44,7 +44,6 @@ void mtc_source_unref(MtcSource *self);
 MtcSource *mtc_source_new_from_stream(const char *name, int fd);
 MtcSource *mtc_source_new_from_file(const char *filename);
 int mtc_source_get_lineno(MtcSource *self, int pos);
-char *mtc_source_dup_line(MtcSource *self, int lineno);
 
 //Describes in what way a particular source is involved in describing
 //any symbol/token

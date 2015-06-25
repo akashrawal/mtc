@@ -143,28 +143,6 @@ int mtc_source_get_lineno(MtcSource *self, int pos)
 	return left;
 }
 
-//TODO: null bytes?
-char *mtc_source_dup_line(MtcSource *self, int lineno)
-{
-	int start, len;
-	char *res;
-	
-	//Check whether line exists
-	if (lineno >= self->n_lines)
-		mtc_error("Assertion failure");
-	
-	//Calculate the range that we have to copy
-	start = MTC_SOURCE_LINE_START(self, lineno);
-	len = MTC_SOURCE_LINE_LEN(self, lineno);
-	
-	//Allocate and copy
-	res = mtc_alloc(len + 1);
-	memcpy(res, self->chars + start, len);
-	res[len] = '\0';
-	
-	return res;
-}
-
 //MtcSourcePtr
 MtcSourcePtr *mtc_source_ptr_new
 	(MtcSourcePtr *next, MtcSourceInvType inv_type, MtcSource *source,

@@ -1,8 +1,7 @@
 #                                               -*- Autoconf -*-
 # Process this file with autoconf to produce a configure script.
 
-#TODO: update website
-AC_INIT([MTC],[0.0.0],[],[mtc],[http://code.google.com/p/mtc-ipc-library])
+AC_INIT([MTC],[0.0.0],[],[mtc],[https://github.com/akashrawal/mtc])
 AC_CONFIG_SRCDIR([mtc0/common.h])
 AC_CONFIG_MACRO_DIR([m4])
 AM_INIT_AUTOMAKE([-Wall -Werror silent-rules])
@@ -13,7 +12,7 @@ LT_INIT
 
 # Checks for programs.
 #TODO: Enforce C11
-AC_PROG_CC_C99
+AC_PROG_CC
 AM_PROG_CC_C_O
 
 #Checks for endianess

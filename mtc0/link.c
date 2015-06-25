@@ -125,9 +125,9 @@ void mtc_link_queue
 }
 
 //Gets whether mtc_link_send will try to send any data.
-int mtc_link_can_send(MtcLink *self)
+int mtc_link_has_unsent_data(MtcLink *self)
 {
-	return (* self->vtable->can_send) (self);
+	return (* self->vtable->has_unsent_data) (self);
 }
 
 //Tries to send all queued data
@@ -335,7 +335,7 @@ void mtc_link_async_flush_add(MtcLinkAsyncFlush *flush, MtcLink *link)
 	MtcRing *ring, *sentinel;
 	MtcLinkEventSource *source;
 	
-	if (! mtc_link_can_send(link))
+	if (! mtc_link_has_unsent_data(link))
 		return;
 	
 	holder = (MtcLinkHolder *) mtc_alloc(sizeof(MtcLinkHolder));

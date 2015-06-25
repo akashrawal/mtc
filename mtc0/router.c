@@ -20,9 +20,6 @@
 
 #include "common.h"
 
-
-//TODO: Trap/logging for debugging invalid/unintended messages?
-
 //Router
 
 //Dynamic destinations submodule
@@ -101,7 +98,10 @@ static void mtc_router_remove_dynamic(MtcRouter *router, MtcDest *dest)
 
 static void mtc_router_free_dynamic(MtcRouter *router)
 {
-	//TODO: Consider assertion for remaining dests?
+	int n_remain = mtc_afl_get_n_items(&(router->dests));
+	if (n_remain)
+		mtc_error("MtcRouter destroyed with "
+			"%d dynamic destinations still remaining", n_remain);
 	mtc_afl_destroy(&(router->dests));
 	mtc_free(router->dynamic_counter);
 }
@@ -183,8 +183,13 @@ static void mtc_router_remove_static(MtcRouter *router, MtcDest *dest)
 
 static void mtc_router_free_static(MtcRouter *router)
 {
-	//TODO: Consider adding an assertion for destinations still
-	//remaining?
+	int i, n = 0;
+	for (i = 0; i < router->static_dests_len; i++)
+		if (router->static_dests[i])
+			n++;
+	if (n)
+		mtc_error("MtcRouter destroyed with "
+			"%d static destinations still remaining", n);
 	mtc_free(router->static_dests);
 }
 
@@ -289,6 +294,9 @@ void mtc_router_deliver(MtcRouter *router, MtcMBlock addr,
 			
 			mtc_msg_unref(error_payload);
 		}
+		
+		mtc_warn("peer %p attempted delivery to nonexistent address",
+			src);
 		
 		return;
 	}
@@ -558,6 +566,8 @@ static void mtc_fc_handle_msg(MtcDest *dest, MtcPeer *src,
 	mtc_error("Assertion failure: unreachable code");
 	
 unintended:
+	mtc_warn("Unintended message received on (MtcFCHandle *) %p", 
+		handle);
 	if (ret_addr.size)
 	{
 		MtcMsg *error_msg = mtc_msg_with_member_ptr_only
@@ -719,6 +729,8 @@ static void mtc_object_handle_msg(MtcDest *dest,
 	}
 	
 unintended:
+	mtc_warn("Unintended message received on (MtcObjectHandle *) %p", 
+		handle);
 	if (ret_addr.size)
 	{
 		MtcMsg *error_msg = mtc_msg_with_member_ptr_only

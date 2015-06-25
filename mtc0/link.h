@@ -17,8 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
-//TODO: Finish documentation
- 
+
 /**
  * \addtogroup mtc_link
  * \{
@@ -38,10 +37,13 @@
  * Whether these functions perform blocking or non-blocking IO is 
  * upto underlying channel. 
  * 
- * A link can be stopped so that no further data transmission or 
- * reception occurs and then the underlying channel can be accessed 
- * liberally. Transmission and reception side can be stopped separately.
- * The transmission side is stopped when a message queued with stop 
+ * A link can be stopped reversibly so that no further data 
+ * transmission or reception occurs and then the underlying channel 
+ * can be accessed liberally. 
+ * Transmission and reception side can be stopped separately.
+ * This can be done instantly by mtc_link_stop_in() or
+ * mtc_link_stop_out() or with information to other side.
+ * An informed stop on transmission side when a message queued with stop 
  * paramater set to 1 is sent successfully. Reception side is stopped 
  * on successful reception of a message with stop paramater set to 1.
  */
@@ -82,18 +84,26 @@ MtcLinkStatus mtc_link_get_out_status(MtcLink *self);
  */
 MtcLinkStatus mtc_link_get_in_status(MtcLink *self);
 
-//Stops the incoming connection of the link. 
+/**Stops the incoming connection of the link. 
+ * \param self The link
+ */
 void mtc_link_stop_in(MtcLink *self);
 
-//Stops the outgoing connection of the link. 
+/**Stops the outgoing connection of the link. 
+ * \param self The link
+ */
 void mtc_link_stop_out(MtcLink *self);
 
 /**Considers the link to be broken. 
- * No further data transmission can happen.
+ * No further data transfer can happen.
  * \param self The link
  */
 void mtc_link_break(MtcLink *self);
 
+/**Determines if the link is broken 
+ * (data transfer is irreversibly stopped)
+ * \param self The link
+ */
 #define mtc_link_is_broken(self) \
 	(((MtcLink *) (self))->in_status == MTC_LINK_STATUS_BROKEN)
 
@@ -124,12 +134,11 @@ void mtc_link_resume_in(MtcLink *self);
 void mtc_link_queue
 	(MtcLink *self, MtcMsg *msg, int stop);
 
-/**Determines whether mtc_link_send will try to send any data.
- * This can be useful before using select() or poll() functions.
+/**Determines whether link has any data waiting to be sent.
  * \param self The link
  * \return 1 if link has data to send, 0 otherwise
  */
-int mtc_link_can_send(MtcLink *self);
+int mtc_link_has_unsent_data(MtcLink *self);
 
 ///Return status of sending or receiving operation on link.
 typedef enum
@@ -169,27 +178,51 @@ typedef struct
  */
 MtcLinkIOStatus mtc_link_receive(MtcLink *self, MtcLinkInData *data);
 
-///Event source base type for MtcLink
+///Event source structure for MtcLink
 typedef struct
 {
+	///Event source structure
 	MtcEventSource parent;
 	
+	///The link this event source belongs
 	MtcLink *link;
+	///Function to be called when all data has been sent, or NULL
 	void (*sent) (MtcLink *link, void *data);
+	///Function to be called when a message has been received, or NULL
 	void (*received) (MtcLink *link, MtcLinkInData in_data, void *data);
+	///Function to be called when link is broken, or NULL
 	void (*broken) (MtcLink *link, void *data);
+	///Function to be called when transmission side of the link is
+	///stopped
 	void (*stopped) (MtcLink *link, void *data);
+	///Data to pass to above callback functions
 	void *data;
 } MtcLinkEventSource;
 
-//TODO: write doc
+/**Gets event source structure for given link. It's lifetime is 
+ * tied to the link.
+ * \param self The link
+ * \return Event source for the given link
+ */
 #define mtc_link_get_event_source(self) \
-	(&(((MtcLink *) (self))->event_source))
+	((MtcLinkEventSource *) (&(((MtcLink *) (self))->event_source)))
 
+/**Sets whether given link performs event-driven IO.
+ * This is not effective unless event source is backed by an 
+ * implementation.
+ * You need to ensure that nonblocking IO is enabled on underlying
+ * mechanism.
+ * \param self the link
+ * \param val Nonzero to enable event-driven IO, 0 to disable
+ */
 void mtc_link_set_events_enabled(MtcLink *self, int val);
 
+/**Gets whether event-driven IO is enabled on the link.
+ * \param self The link
+ * \return Nonzero if event-driven IO is enabled
+ */
 #define mtc_link_get_events_enabled(self) \
-	(((MtcLink *) (self))->events_enabled)
+	((int) (((MtcLink *) (self))->events_enabled))
 
 /**Increments the reference count of the link by one.
  * \param self The link
@@ -209,22 +242,33 @@ void mtc_link_unref(MtcLink *self);
  */
 int mtc_link_get_refcount(MtcLink *self);
 
-//TODO: document how to extend MtcLink
 
-//Value table for implementing various types of links
+///Value table for implementing various types of links
 typedef struct
 {
+	///Implementation for mtc_link_queue()
 	void (*queue) 
 		(MtcLink *self, MtcMsg *msg, int stop);
-	int (*can_send) 
+	///Implementation for mtc_link_has_unsent_data()
+	int (*has_unsent_data) 
 		(MtcLink *self);
+	///Implementation for mtc_link_send(). 
+	///Link's status is automatically adjusted from the return value.
 	MtcLinkIOStatus (*send)
 		(MtcLink *self);
+	///Implementation for mtc_link_receive().
+	///Link's status is automatically adjusted from the return value.
 	MtcLinkIOStatus (*receive)
 		(MtcLink *self, MtcLinkInData *data);
+	///Implementation for mtc_link_set_events_enabled().
 	void (*set_events_enabled) (MtcLink *self, int val);
+	///Value table for the event source
 	MtcEventSourceVTable event_source_vtable;
-	void (*action_hook) (MtcLink *self); //Can be NULL
+	///Function called when link's status changes, and when
+	///mtc_link_queue(), mtc_link_send(), and mtc_link_receive()
+	///is called. Can be NULL.
+	void (*action_hook) (MtcLink *self);
+	///Called to free up all resources for the link.
 	void (*finalize) (MtcLink *self);
 } MtcLinkVTable;
 
@@ -240,22 +284,47 @@ struct _MtcLink
 	const MtcLinkVTable *vtable;
 };
 
-//Creates a new link.
+/**Allocates a new link structure. Size of the structure should 
+ * be atleast sizeof(MtcLink). 
+ * \param size Size of the link structure. 
+ * 		Should be atleast sizeof(MtcLink).
+ * \param vtable Value table containing implementation functions
+ */
 MtcLink *mtc_link_create(size_t size, const MtcLinkVTable *vtable);
 
-//Asynchronous flush operator
+/**An event-driven flush operator that sends all unsent data in links 
+ * and destroys them.
+ */
 typedef struct _MtcLinkAsyncFlush MtcLinkAsyncFlush;
 
+/**Creates a new MtcLinkAsyncFlush object.
+ * \return A new MtcLinkAsyncFlush
+ */
 MtcLinkAsyncFlush *mtc_link_async_flush_new();
 
-typedef void (*MtcLinkAsyncFlushCB) (MtcLink *link, void *data);
-
+/**Adds a link to MtcLinkAsyncFlush object. 
+ * link's event source should already be backed by an implementation.
+ * The flush operator holds its own reference to the link, so calling
+ * code can drop its reference immediately.
+ * \param flush The flush operator to add link to.
+ * \param link The link to be flushed
+ */
 void mtc_link_async_flush_add(MtcLinkAsyncFlush *flush, MtcLink *link);
 
+/**Removes all links in the flush operator.
+ * \param flush The flush operator
+ */
 void mtc_link_async_flush_clear(MtcLinkAsyncFlush *flush);
 
+/**Increments the reference count by 1.
+ * \param flush The flush operator
+ */
 void mtc_link_async_flush_ref(MtcLinkAsyncFlush *flush);
 
+/**Decrements the reference count by 1.
+ * If reference count drops to 0, the flush operator is destroyed.
+ * \param flush The flush operator
+ */
 void mtc_link_async_flush_unref(MtcLinkAsyncFlush *flush);
 
 ///\}
