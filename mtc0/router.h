@@ -18,6 +18,94 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+/**
+ * \addtogroup mtc_router
+ * \{
+ * 
+ * A router is an abstract object responsible to direct messages to 
+ * correct peers and correct destinations. 
+ * 
+ * A peer is an abstract object representing the entity that hosts 
+ * an object. (e.g. a remote process)
+ * 
+ * A destination is an entity having an address that can receive 
+ * messages. 
+ * 
+ * An address is block of memory whose contents uniquely identify
+ * a destination.  There are two types of addresses 
+ * (and consequently destinations):
+ * - Static addresses: These are just one byte long. A user can get any
+ *   static addess at will. They are generally used for objects 
+ *   surviving for the lifetime of the process. 
+ * - Dynamic addresses: These are more than one byte long. They
+ *   are only assignable by the router. Their format is also opaque
+ *   and should be considered implementation detail. They are used 
+ *   for objects and function call handles created aritrarily.
+ *   The only guarantee is that address once assigned is never 
+ *   reused again.
+ * 
+ * Using these concepts a distributed object system is implemented 
+ * here.
+ * 
+ */
+ 
+//MDLC
+
+//The first 4 bytes is an integer referring to a function or event.
+//Called member pointer
+
+#define MTC_MEMBER_PTR_NULL               ((uint32_t) 0)
+#define MTC_MEMBER_PTR_FN                 ((uint32_t) 1L << 28)
+#define MTC_MEMBER_PTR_FN_RETURN          ((uint32_t) 2L << 28)
+#define MTC_MEMBER_PTR_ERROR              ((uint32_t) 3L << 28)
+#define MTC_MEMBER_PTR_MASK               ((uint32_t) 15L << 28)
+
+#define MTC_MEMBER_PTR_IS_FN(ptr) \
+	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_FN)
+
+#define MTC_MEMBER_PTR_IS_ERROR(ptr) \
+	(((ptr) & MTC_MEMBER_PTR_MASK) == MTC_MEMBER_PTR_ERROR)
+
+#define MTC_MEMBER_PTR_GET_IDX(ptr) \
+	((ptr) & (~ MTC_MEMBER_PTR_MASK))
+	
+///Status codes used in distributed object system
+typedef enum
+{	
+	MTC_ERROR_TEMP = -1,
+	MTC_FC_SUCCESS = -2,
+	
+	MTC_ERROR_INVALID_PEER = 1,
+	MTC_ERROR_PEER_RESET = 2,
+	MTC_ERROR_INVALID_ARGUMENT = 3
+} MtcStatus;
+
+uint32_t mtc_msg_read_member_ptr(MtcMsg *msg);
+
+MtcMsg *mtc_msg_with_member_ptr_only(uint32_t member_ptr);
+
+typedef MtcMsg *(*MtcSerFn) (void *strx);
+typedef int (*MtcDeserFn)   (MtcMsg *msg, void *strx);
+typedef void (*MtcFreeFn)   (void *strx);
+
+typedef struct 
+{
+	int        id;
+	size_t     in_args_c_size;
+	MtcSerFn   in_args_ser;
+	MtcDeserFn in_args_deser;
+	MtcFreeFn  in_args_free;
+	size_t     out_args_c_size;
+	MtcSerFn   out_args_ser;
+	MtcDeserFn out_args_deser;
+	MtcFreeFn  out_args_free;
+} MtcFCBinary;
+
+typedef struct 
+{
+	int             n_fns;
+	MtcFCBinary     *fns;
+} MtcClassBinary;
 
 //User API
 
@@ -367,6 +455,7 @@ MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle);
 
 /**Gets output arguments of a finished function call.
  * \param handle A function call handle
+ * \param type Type of structure used
  * \return What happened to the function call.
  */
 #define mtc_fc_get_out_args(handle, type) \
@@ -427,4 +516,8 @@ MtcObjectHandle *mtc_object_handle_new
  */
 void mtc_fc_return(MtcPeer *src, MtcMBlock ret_addr, MtcFCBinary *binary, 
 	void *out_args);
+
+/**
+ * \}
+ */
 

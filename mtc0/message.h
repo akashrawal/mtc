@@ -80,11 +80,28 @@ void mtc_msg_ref(MtcMsg *self);
  */
 void mtc_msg_unref(MtcMsg *self);
 
-
+/**Counts the amount of dynamic data inside message. 
+ * Used by mdlc generated serializers.
+ * \param self The message
+ * \return Dynamic size of the message
+ */
 MtcDLen mtc_msg_count(MtcMsg *self);
 
+/**Serializes a message into a 'dual stream'. 
+ * \param self The message to serialize
+ * \param segment Current segment
+ * \param dstream The dual stream to serialize data to
+ */
 void mtc_msg_write
 	(MtcMsg *self, MtcSegment *segment, MtcDStream *dstream);
 
+/**Deserializes a message from a 'dual stream'. 
+ * \param segment Current segment
+ * \param dstream The dual stream to deserialize data from
+ * \return Deserialized message, or NULL if deserialization failed
+ */
 MtcMsg *mtc_msg_read(MtcSegment *segment, MtcDStream *dstream);
 
+/**
+ * \}
+ */

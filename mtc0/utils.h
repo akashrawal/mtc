@@ -33,7 +33,7 @@ do {\
 } while(0)
 
 /**
- * \addtogroup mtc_util
+ * \addtogroup mtc_utils
  * \{
  * 
  * This section documents a collection of important utility functions.

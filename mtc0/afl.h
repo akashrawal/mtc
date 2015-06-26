@@ -20,7 +20,7 @@
 
 //TODO: Discuss whether to keep this API exposed?
 
-/**\addtogroup mtc_afl
+/* \addtogroup mtc_afl
  * \{
  * MtcAfl is simply a data structure for storing items, 
  * each item is uniquely identified by an integer.

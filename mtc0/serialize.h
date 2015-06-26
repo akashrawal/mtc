@@ -19,7 +19,7 @@
  */
 
 /**
- * \addtogroup mtc_serialize
+ * \addtogroup mtc_dstream
  * \{
  * 
  * This section documents functions and macros useful for serialization.
@@ -108,7 +108,7 @@ int mtc_dstream_get_segment
 /**Stores a 1-byte unsigned char to the current segment position
  * and increments it accordingly.
  * \param seg Pointer to the segment (type MtcSegment *)
- * \param lval Value to store (type: unsigned char)
+ * \param val Value to store (type: unsigned char)
  */
 #define mtc_segment_write_uchar(seg, val) \
 do { \
@@ -245,7 +245,7 @@ do {\
  *        (Must be a variable. To write a constant assign it to a variable
  *        first)
  */
-#define mtc_segment_write_int16(seg, lval)
+#define mtc_segment_write_int16(seg, lval) \
 do { \
 	uint16_t lval_2c = mtc_int16_to_2_complement(lval); \
 	mtc_segment_write_uint16(seg, lval_2c); \
@@ -258,7 +258,7 @@ do { \
  *        (Must be a variable. To write a constant assign it to a variable
  *        first)
  */
-#define mtc_segment_write_int32(seg, lval)
+#define mtc_segment_write_int32(seg, lval) \
 do { \
 	uint32_t lval_2c = mtc_int32_to_2_complement(lval); \
 	mtc_segment_write_uint32(seg, lval_2c); \
@@ -271,7 +271,7 @@ do { \
  *        (Must be a variable. To write a constant assign it to a variable
  *        first)
  */
-#define mtc_segment_write_int64(seg, lval)
+#define mtc_segment_write_int64(seg, lval) \
 do { \
 	uint64_t lval_2c = mtc_int64_to_2_complement(lval); \
 	mtc_segment_write_uint64(seg, lval_2c); \
@@ -283,7 +283,7 @@ do { \
  * \param seg Pointer to the segment (type MtcSegment *)
  * \param lval Variable of type char to store the result
  */
-#define mtc_segment_read_char(seg, lval)
+#define mtc_segment_read_char(seg, lval) \
 do { \
 	mtc_segment_read_uchar(seg, lval); \
 	lval = mtc_char_to_2_complement(lval); \
@@ -294,7 +294,7 @@ do { \
  * \param seg Pointer to the segment (type MtcSegment *)
  * \param lval Variable of type uint16_t to store the result
  */
-#define mtc_segment_read_int16(seg, lval)
+#define mtc_segment_read_int16(seg, lval) \
 do { \
 	mtc_segment_read_uint16(seg, lval); \
 	lval = mtc_int16_to_2_complement(lval); \
@@ -305,7 +305,7 @@ do { \
  * \param seg Pointer to the segment (type MtcSegment *)
  * \param lval Variable of type uint32_t to store the result
  */
-#define mtc_segment_read_int32(seg, lval)
+#define mtc_segment_read_int32(seg, lval) \
 do { \
 	mtc_segment_read_uint32(seg, lval); \
 	lval = mtc_int32_to_2_complement(lval); \
@@ -316,7 +316,7 @@ do { \
  * \param seg Pointer to the segment (type MtcSegment *)
  * \param lval Variable of type uint64_t to store the result
  */
-#define mtc_segment_read_int64(seg, lval)
+#define mtc_segment_read_int64(seg, lval) \
 do { \
 	mtc_segment_read_uint64(seg, lval); \
 	lval = mtc_int64_to_2_complement(lval); \
@@ -396,4 +396,4 @@ void mtc_segment_write_raw(MtcSegment *seg, MtcMBlock val);
  */
 void mtc_segment_read_raw(MtcSegment *seg, MtcMBlock *val);
 
-///}
+///\}

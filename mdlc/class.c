@@ -160,6 +160,7 @@ void mtc_write_one_way_serializers
 			"    return -1;\n"
 			"}\n\n");
 	}
+#if 0
 	else
 	{
 		//Without arguments (only serializer)
@@ -188,6 +189,7 @@ void mtc_write_one_way_serializers
 			klass->parent.name, member, sn,
 			member_ptr_type, idx);
 	}
+#endif
 }
 
 //Now generate code for the class
@@ -291,10 +293,9 @@ void mtc_class_gen_code
 		{
 			fprintf(h_file, 
 				"        0,\\\n"
-				"        (MtcSerFn) %s__%s__msg,\\\n"
+				"        (MtcSerFn) NULL,\\\n"
 				"        (MtcDeserFn) NULL,\\\n"
-				"        (MtcFreeFn) NULL,\\\n",
-				klass->parent.name, fn->parent.name);
+				"        (MtcFreeFn) NULL,\\\n");
 		}
 		
 		if (fn->out_args)
@@ -313,10 +314,9 @@ void mtc_class_gen_code
 		{
 			fprintf(h_file, 
 				"        0,\\\n"
-				"        (MtcSerFn) %s__%s__reply,\\\n"
+				"        (MtcSerFn) NULL,\\\n"
 				"        (MtcDeserFn) NULL,\\\n"
-				"        (MtcFreeFn) NULL\\\n",
-				klass->parent.name, fn->parent.name);
+				"        (MtcFreeFn) NULL\\\n");
 		}
 		
 		if (fn->parent.next)

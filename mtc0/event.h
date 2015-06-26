@@ -18,7 +18,21 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-//TODO: Section documentation
+/**
+ * \addtogroup mtc_event
+ * \{
+ * 
+ * This contains an abstract interface for event-driven framework.
+ * 
+ * Events are handled by MtcEventSource objects. These can be
+ * derrived to implement various kinds ov events. Event's test 
+ * conditions are provided by MtcEventTest structures.
+ * 
+ * Event sources need to be implemented by a backend. 
+ * For that you need event backend managers (MtcEventMgr) for the
+ * event loop you are using, which canb e found in other libraries or
+ * you can implement them yourself. 
+ */
 
 //Event test data API
 
@@ -223,3 +237,7 @@ struct _MtcEventBackend
 	MtcEventSource *source;
 	MtcRing backend_ring;
 };
+
+/**
+ * \}
+ */

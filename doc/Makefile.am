@@ -1,8 +1,8 @@
-extra_dist = 0_modindex.md \
-Doxyfile \
+extra_dist = Doxyfile \
 DoxygenLayout.xml \
-main.c \
-Makefile.c \
-mtc_general.c \
-mtc_lowlevel.c \
-mtc_utils.c
+0_modindex.h \
+main.h \
+mtc_general.h \
+mtc_serialize.h
+
+

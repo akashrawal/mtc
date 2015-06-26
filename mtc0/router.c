@@ -20,6 +20,36 @@
 
 #include "common.h"
 
+//MDLC
+uint32_t mtc_msg_read_member_ptr(MtcMsg *msg)
+{
+	MtcMBlock byte_stream;
+	uint32_t res;
+	
+	byte_stream = mtc_msg_get_blocks(msg)[0];
+	
+	if (byte_stream.size < 4)
+		return MTC_MEMBER_PTR_NULL;
+	
+	mtc_uint32_copy_from_le(byte_stream.mem, &res);
+	
+	return res;
+}
+
+MtcMsg *mtc_msg_with_member_ptr_only(uint32_t member_ptr)
+{
+	MtcMsg *msg;
+	MtcMBlock byte_stream;
+	
+	msg = mtc_msg_new(4, 0);
+	
+	byte_stream = mtc_msg_get_blocks(msg)[0];
+	
+	mtc_uint32_copy_to_le(byte_stream.mem, &member_ptr);
+	
+	return msg;
+}
+
 //Router
 
 //Dynamic destinations submodule
@@ -631,7 +661,6 @@ MtcFCHandle *mtc_fc_start
 	//Create and init handle
 	handle = (MtcFCHandle *) mtc_dest_create
 		(peer->router, -1, size, &mtc_fc_handle_vtable);
-	
 	handle->peer = peer;
 	mtc_peer_ref(peer);
 	handle->notify.cb = mtc_fc_handle_peer_reset;
@@ -646,7 +675,11 @@ MtcFCHandle *mtc_fc_start
 	mtc_peer_add_reset_notify(peer, &(handle->notify));
 		
 	//Send mail
-	payload = (* binary->in_args_ser)(args);
+	if (binary->in_args_c_size)
+		payload = (* binary->in_args_ser)(args);
+	else
+		payload = mtc_msg_with_member_ptr_only
+			(MTC_MEMBER_PTR_FN | binary->id);
 	mtc_peer_sendto(peer, addr, (MtcDest *) handle, payload);
 	mtc_msg_unref(payload);
 	
@@ -659,7 +692,11 @@ void mtc_fc_start_unhandled
 	MtcMsg *payload;
 	
 	//Send mail
-	payload = (* binary->in_args_ser)(args);
+	if (binary->in_args_c_size)
+		payload = (* binary->in_args_ser)(args);
+	else
+		payload = mtc_msg_with_member_ptr_only
+			(MTC_MEMBER_PTR_FN | binary->id);
 	mtc_peer_sendto(peer, addr, NULL, payload);
 	mtc_msg_unref(payload);
 }
@@ -781,7 +818,11 @@ void mtc_fc_return(MtcPeer *src, MtcMBlock ret_addr,
 	MtcMsg *payload;
 	
 	//Send mail
-	payload = (* binary->out_args_ser)(out_args);
+	if (binary->out_args_c_size)
+		payload = (* binary->out_args_ser)(out_args);
+	else
+		payload = mtc_msg_with_member_ptr_only
+			(MTC_MEMBER_PTR_FN_RETURN);
 	mtc_peer_sendto(src, ret_addr, NULL, payload);
 	mtc_msg_unref(payload);
 }

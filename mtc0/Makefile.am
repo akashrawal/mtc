@@ -16,7 +16,6 @@ mtc_c =  \
 	message.c      \
 	event.c        \
 	link.c         \
-	hl_base.c      \
 	afl.c          \
 	router.c  
 
@@ -29,7 +28,6 @@ mtc_h =  \
 	message.h      \
 	event.h        \
 	link.h         \
-	hl_base.h      \
 	afl.h          \
 	router.h
      

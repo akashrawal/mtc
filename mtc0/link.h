@@ -43,9 +43,10 @@
  * Transmission and reception side can be stopped separately.
  * This can be done instantly by mtc_link_stop_in() or
  * mtc_link_stop_out() or with information to other side.
- * An informed stop on transmission side when a message queued with stop 
- * paramater set to 1 is sent successfully. Reception side is stopped 
- * on successful reception of a message with stop paramater set to 1.
+ * An informed stop on transmission side is made when a message queued 
+ * with stop paramater set to 1 is sent successfully. 
+ * Reception side is stopped on successful reception of a message 
+ * with stop paramater set to 1.
  */
 
 ///Structure that represents a link

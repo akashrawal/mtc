@@ -41,7 +41,6 @@
 #include "message.h"
 #include "event.h"
 #include "link.h"
-#include "hl_base.h"
 #include "afl.h"
 #include "router.h"
 
