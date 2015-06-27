@@ -109,8 +109,6 @@ typedef struct
 
 //User API
 
-//TODO: Section documentation
-
 //Objects
 
 ///Structure representing a router.
@@ -409,9 +407,7 @@ struct _MtcFCHandle
 	MtcStatus status;
 	MtcFCBinary *binary;
 	
-	///The callback function
 	MtcFCFn cb;
-	///Data passed to the callback function
 	void *cb_data;
 };
 
@@ -460,6 +456,18 @@ MtcStatus mtc_fc_finish_sync(MtcFCHandle *handle);
  */
 #define mtc_fc_get_out_args(handle, type) \
 	((type *) (((MtcFCHandle *) (handle))->out_args))
+
+/**Sets callback function to call when function call finishes.
+ * \param handle A function call handle (MtcFCHandle *)
+ * \param callback Callback function (MtcFCFn)
+ * \param user_data Data to pass to callback (void *)
+ */
+#define mtc_fc_set_cb(handle, callback, user_data) \
+do \
+{ \
+	(handle)->cb = (callback); \
+	(handle)->cb_data = (user_data); \
+} while (0)
 
 //Object handle
 

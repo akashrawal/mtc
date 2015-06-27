@@ -109,7 +109,7 @@ static void collapse_table(MtcAfl *self)
 		(self->table, sizeof(void *) * (new_alloc_len + 1));
 	
 	//Regenerate the free list
-	self->free_list = NULL;
+	self->free_list = new_table + new_alloc_len;
 	new_table[new_alloc_len] = NULL;
 	for (i = new_alloc_len - 1; i >= 0; i--)
 	{
