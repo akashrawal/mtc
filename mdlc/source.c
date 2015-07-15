@@ -49,8 +49,8 @@ void mtc_source_unref(MtcSource *self)
 	}
 }
 
-//Create a new source from a stream
-MtcSource *mtc_source_new_from_stream(const char *name, int fd)
+MtcSource *mtc_source_new_from_mem
+	(const char *name, char *data, size_t len)
 {
 	MtcSource *self;
 	MtcVector vec;
@@ -60,33 +60,10 @@ MtcSource *mtc_source_new_from_stream(const char *name, int fd)
 	self = mtc_alloc(sizeof(MtcSource));
 	self->refcount = 1;
 	self->name = mtc_strdup(name);
-	self->chars = NULL;
-	self->n_chars = 0;
+	self->chars = data;
+	self->n_chars = len;
 	self->lines = NULL;
 	self->n_lines = 0;
-	
-	//Read contents of the stream
-	{
-		off_t res;
-		
-		if ((res = lseek(fd, 0, SEEK_END)) < 0)
-			mtc_error("lseek: %s", strerror(errno));
-		
-		self->n_chars = res;
-		self->chars = (char *) mtc_alloc(res + 1);
-		
-		if (lseek(fd, 0, SEEK_SET) < 0)
-			mtc_error("lseek: %s", strerror(errno));
-		
-		if (read(fd, self->chars, self->n_chars) != self->n_chars)
-			mtc_error("read: %s", strerror(errno));
-		
-		if (self->chars[self->n_chars - 1] != '\n')
-		{
-			self->chars[self->n_chars] = '\n';
-			self->n_chars++;
-		}
-	}
 	
 	//Now index lines
 	mtc_vector_init(&vec);
@@ -104,6 +81,34 @@ MtcSource *mtc_source_new_from_stream(const char *name, int fd)
 	self->lines = (int *) vec.data;
 	
 	return self;
+}
+
+//Create a new source from a stream
+MtcSource *mtc_source_new_from_stream(const char *name, int fd)
+{
+	char *data;
+	size_t len;
+	off_t res;
+	
+	if ((res = lseek(fd, 0, SEEK_END)) < 0)
+		mtc_error("lseek: %s", strerror(errno));
+	
+	len = res;
+	data = (char *) mtc_alloc(res + 1);
+	
+	if (lseek(fd, 0, SEEK_SET) < 0)
+		mtc_error("lseek: %s", strerror(errno));
+	
+	if (read(fd, data, len) != len)
+		mtc_error("read: %s", strerror(errno));
+	
+	if (data[len - 1] != '\n')
+	{
+		data[len] = '\n';
+		len++;
+	}
+	
+	return mtc_source_new_from_mem(name, data, len);
 }
 
 MtcSource *mtc_source_new_from_file(const char *filename)
@@ -141,6 +146,27 @@ int mtc_source_get_lineno(MtcSource *self, int pos)
 	}
 	
 	return left;
+}
+
+//MtcSourceGenerator
+void mtc_source_generator_init(MtcSourceGenerator *generator)
+{
+	generator->memstream = open_memstream
+		(&(generator->data), &(generator->len));
+}
+
+MtcSource *mtc_source_generate(MtcSourceGenerator *generator)
+{
+	fprintf(generator->memstream, "\n");
+	fclose(generator->memstream);
+	return mtc_source_new_from_mem
+		("Generated source", generator->data, generator->len);
+}
+
+void mtc_source_generator_add_string_macro
+	(MtcSourceGenerator *generator, const char *macro, const char *value)
+{
+	fprintf(generator->memstream, "_define %s \"%s\"\n", macro, value);
 }
 
 //MtcSourcePtr

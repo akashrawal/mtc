@@ -18,7 +18,6 @@
  * along with MTC.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-
 //Source file (stores contents in memory)
 typedef struct _MtcSource MtcSource;
 #define MTC_SOURCE_LINE_START(source, n) \
@@ -44,6 +43,19 @@ void mtc_source_unref(MtcSource *self);
 MtcSource *mtc_source_new_from_stream(const char *name, int fd);
 MtcSource *mtc_source_new_from_file(const char *filename);
 int mtc_source_get_lineno(MtcSource *self, int pos);
+
+typedef struct
+{
+	FILE *memstream;
+	char *data;
+	size_t len;
+} MtcSourceGenerator;
+
+void mtc_source_generator_init(MtcSourceGenerator *generator);
+MtcSource *mtc_source_generate(MtcSourceGenerator *generator);
+void mtc_source_generator_add_string_macro
+	(MtcSourceGenerator *generator, const char *macro, const char *value);
+
 
 //Describes in what way a particular source is involved in describing
 //any symbol/token

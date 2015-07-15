@@ -26,7 +26,7 @@
 
 //TODO: This file needs a lots of work. 
 
-MtcMacroDB *macro_db;
+MtcSourceGenerator generator[1];
 int debug = 0;
 const char *version_str = PACKAGE_VERSION;
 
@@ -42,7 +42,8 @@ error_t parser(int key, char *arg, struct argp_state *state)
 			mtc_error("Argument not in form of name=value");
 		
 		arg[i] = '\0';
-		mtc_macro_db_add_string(macro_db, arg, arg + i + 1);
+		mtc_source_generator_add_string_macro
+			(generator, arg, arg + i + 1);
 		arg[i] = '=';
 		
 		return 0;
@@ -64,10 +65,11 @@ int main(int argc, char *argv[])
 	char *buffer;
 	MtcSource *source;
 	MtcSymbolDB *symbol_db;
+	MtcMacroDB *macro_db;
 	MtcSourceMsgList *el;
 	
-	//Initialize macro database
-	macro_db = mtc_macro_db_new();
+	//Initialize source generator
+	mtc_source_generator_init(generator);
 	
 	//Arguments
 	{
@@ -108,14 +110,58 @@ int main(int argc, char *argv[])
 	
 	if (!source)
 	{
-		fprintf(stderr, "Error opening files\n");
+		fprintf(stderr, "Error opening \"%s\"\n", file);
 		return 1;
 	}
 	
-	//Initialize symbol database
+	//Initialize databases
 	symbol_db = mtc_symbol_db_new();
+	macro_db = mtc_macro_db_new();
 	el = mtc_source_msg_list_new();
 	
+	//Generated code
+	{
+		MtcSource *generated = mtc_source_generate(generator);
+		MtcToken *tokens;
+		MtcTokenIter iter;
+		int n_tokens;
+		
+		//Tokenize the generated code
+		n_tokens = mtc_scanner_scan(generated, &tokens, el);
+		
+		if (el->error_count)
+		{
+			mtc_source_msg_list_add
+				(el, NULL, MTC_SOURCE_MSG_ERROR, 
+				"Generated code failed to scan");
+			goto generated_code_end;
+		}
+		
+		//Preprocess the source
+		mtc_token_iter_init(&iter, tokens, n_tokens);
+		mtc_preprocessor_run(&iter, macro_db, el);
+		if (el->error_count)
+		{
+			mtc_source_msg_list_add
+				(el, NULL, MTC_SOURCE_MSG_ERROR, 
+				"Preprocessor failed on generated code");
+			goto generated_code_end;
+		}
+		
+	generated_code_end: 
+		
+		//Free the tokens
+		mtc_token_list_free(iter.start);
+		mtc_source_unref(generated);
+		if (el->error_count)
+		{
+			//Spit out errors
+			mtc_source_msg_list_dump(el, stderr);
+			abort();
+		}
+	}
+	
+	//Do the parsing
 	{
 		int res = mtc_mdl_parser_parse_source
 			(source, symbol_db, macro_db, debug, el);

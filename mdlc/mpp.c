@@ -50,14 +50,6 @@ void mtc_macro_db_add
 	self->macros = new_entry;
 }
 
-//Add a string as a macro
-void mtc_macro_db_add_string
-	(MtcMacroDB *self, const char *name, const char *value)
-{
-	MtcToken *def = mtc_token_new_str(MTC_TOKEN_STR, value);
-	mtc_macro_db_add(self, name, def);
-}
-
 //Returns 1 if the macro exists in database. 0 otherwise
 int mtc_macro_db_exists(MtcMacroDB *self, const char *name)
 {
@@ -141,7 +133,7 @@ void mtc_preprocessor_run
 	
 	while (iter->cur)
 	{
-		while (1)
+		while (iter->cur)
 		{
 			//String concatenation
 			if (iter->pos >= 1)

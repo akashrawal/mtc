@@ -38,8 +38,6 @@ typedef struct
 MtcMacroDB *mtc_macro_db_new();
 void mtc_macro_db_add
 	(MtcMacroDB *self, const char *name, MtcToken *def);
-void mtc_macro_db_add_string
-	(MtcMacroDB *self, const char *name, const char *value);
 int mtc_macro_db_exists(MtcMacroDB *self, const char *name);
 MtcToken *mtc_macro_db_fetch
 	(MtcMacroDB *self, const char *name, MtcSourcePtr *expand_loc);
